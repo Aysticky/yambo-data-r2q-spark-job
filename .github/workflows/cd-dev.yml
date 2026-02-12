@@ -1,0 +1,217 @@
+name: CD - Deploy to Dev
+
+on:
+  push:
+    branches: [develop]
+  workflow_dispatch:  # Manual trigger
+
+env:
+  AWS_REGION: eu-central-1
+  ECR_REPOSITORY: yambo-spark-job
+  EKS_CLUSTER_NAME: yambo-dev-eks
+
+jobs:
+  build-and-push:
+    name: Build and Push Docker Image
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write  # For OIDC
+      contents: read
+    
+    outputs:
+      image-tag: ${{ steps.meta.outputs.version }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN_DEV }}
+          aws-region: ${{ env.AWS_REGION }}
+      
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+      
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}
+          tags: |
+            type=sha,prefix=,format=short
+            type=ref,event=branch
+            type=raw,value=latest,enable={{is_default_branch}}
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./docker/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+  
+  deploy-infrastructure:
+    name: Deploy Infrastructure (Terraform)
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    permissions:
+      id-token: write
+      contents: read
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN_DEV }}
+          aws-region: ${{ env.AWS_REGION }}
+      
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.6.0
+      
+      - name: Terraform init
+        run: |
+          cd terraform/environments/dev
+          terraform init
+      
+      - name: Terraform plan
+        run: |
+          cd terraform/environments/dev
+          terraform plan -out=tfplan
+      
+      - name: Terraform apply
+        run: |
+          cd terraform/environments/dev
+          terraform apply -auto-approve tfplan
+  
+  deploy-kubernetes:
+    name: Deploy Kubernetes Manifests
+    runs-on: ubuntu-latest
+    needs: [build-and-push, deploy-infrastructure]
+    permissions:
+      id-token: write
+      contents: read
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN_DEV }}
+          aws-region: ${{ env.AWS_REGION }}
+      
+      - name: Update kubeconfig
+        run: |
+          aws eks update-kubeconfig --name ${{ env.EKS_CLUSTER_NAME }} --region ${{ env.AWS_REGION }}
+      
+      - name: Get IRSA role ARN
+        id: get-irsa
+        run: |
+          cd terraform/environments/dev
+          terraform init
+          IRSA_ARN=$(terraform output -raw spark_job_irsa_role_arn)
+          echo "irsa_arn=$IRSA_ARN" >> $GITHUB_OUTPUT
+      
+      - name: Update service account with IRSA
+        run: |
+          kubectl annotate serviceaccount spark-job-sa \
+            -n spark-jobs \
+            eks.amazonaws.com/role-arn=${{ steps.get-irsa.outputs.irsa_arn }} \
+            --overwrite
+      
+      - name: Apply Kubernetes manifests
+        run: |
+          kubectl apply -f k8s/namespace.yaml
+          kubectl apply -f k8s/service-account.yaml
+          kubectl apply -f k8s/rbac.yaml
+          kubectl apply -f k8s/config-map.yaml
+      
+      - name: Update SparkApplication image
+        run: |
+          IMAGE_TAG=${{ needs.build-and-push.outputs.image-tag }}
+          ECR_URI="${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY }}:${IMAGE_TAG}"
+          
+          # Update check job
+          sed -i "s|image:.*|image: \"${ECR_URI}\"|" k8s/spark-application-check.yaml
+          kubectl apply -f k8s/spark-application-check.yaml
+          
+          # Update extract job
+          sed -i "s|image:.*|image: \"${ECR_URI}\"|" k8s/spark-application-extract.yaml
+          kubectl apply -f k8s/spark-application-extract.yaml
+  
+  smoke-test:
+    name: Run Smoke Tests
+    runs-on: ubuntu-latest
+    needs: deploy-kubernetes
+    permissions:
+      id-token: write
+      contents: read
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN_DEV }}
+          aws-region: ${{ env.AWS_REGION }}
+      
+      - name:Update kubeconfig
+        run: |
+          aws eks update-kubeconfig --name ${{ env.EKS_CLUSTER_NAME }} --region ${{ env.AWS_REGION }}
+      
+      - name: Run check job
+        run: |
+          kubectl create -f k8s/spark-application-check.yaml
+          
+          # Wait for job completion (5 min timeout)
+          kubectl wait --for=condition=Complete \
+            sparkapplication/yambo-check-job \
+            -n spark-jobs \
+            --timeout=300s
+      
+      - name: Get check job logs
+        if: always()
+        run: |
+          kubectl logs -l app=yambo-spark-job,job-type=check -n spark-jobs --tail=100
+
+# PRODUCTION NOTES:
+#
+# This workflow deploys to dev environment on every push to develop branch.
+#
+# REQUIRED SECRETS (set in GitHub repo settings):
+# - AWS_ROLE_ARN_DEV: IAM role ARN for OIDC authentication
+# - AWS_ACCOUNT_ID: AWS account ID
+#
+# OIDC SETUP:
+# 1. Create OIDC provider in AWS IAM for GitHub Actions
+# 2. Create IAM role with trust policy for GitHub repo
+# 3. Attach policies: ECR, EKS, S3, DynamoDB, Secrets Manager
+# 4. Add role ARN as GitHub secret
+#
+# DEPLOYMENT FLOW:
+# 1. Build Docker image and push to ECR
+# 2. Deploy infrastructure via Terraform
+# 3. Deploy Kubernetes manifests
+# 4. Run smoke tests (check job)
+#
+# SAFETY:
+# - Uses terraform plan before apply
+# - Smoke tests verify deployment
+# - Manual approval can be added for prod

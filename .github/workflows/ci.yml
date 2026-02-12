@@ -1,0 +1,165 @@
+name: CI - Test and Lint
+
+on:
+  pull_request:
+    branches: [develop, main]
+  push:
+    branches: [develop]
+
+jobs:
+  lint-python:
+    name: Lint Python Code
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
+      - name: Install Poetry
+        run: |
+          curl -sSL https://install.python-poetry.org | python3 -
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+      
+      - name: Install dependencies
+        run: |
+          poetry install --no-root
+      
+      - name: Run flake8
+        run: |
+          poetry run flake8 src/ --count --select=E9,F63,F7,F82 --show-source --statistics
+          poetry run flake8 src/ --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+      
+      - name: Run black (check only)
+        run: |
+          poetry run black --check src/
+  
+  test-python:
+    name: Test Python Code
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
+      - name: Install Poetry
+        run: |
+          curl -sSL https://install.python-poetry.org | python3 -
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+      
+      - name: Install dependencies
+        run: |
+          poetry install
+      
+      - name: Run tests
+        run: |
+          poetry run pytest tests/ -v --cov=src --cov-report=xml --cov-report=term
+      
+      - name: Upload coverage
+        uses: codecov/codecov-action@v3
+        with:
+          files: ./coverage.xml
+          flags: unittests
+          name: codecov-umbrella
+  
+  validate-terraform:
+    name: Validate Terraform
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.6.0
+      
+      - name: Terraform fmt check
+        run: |
+          terraform fmt -check -recursive terraform/
+      
+      - name: Terraform init (dev)
+        run: |
+          cd terraform/environments/dev
+          terraform init -backend=false
+      
+      - name: Terraform validate (dev)
+        run: |
+          cd terraform/environments/dev
+          terraform validate
+      
+      - name: Terraform init (prod)
+        run: |
+          cd terraform/environments/prod
+          terraform init -backend=false
+      
+      - name: Terraform validate (prod)
+        run: |
+          cd terraform/environments/prod
+          terraform validate
+  
+  validate-docker:
+    name: Validate Docker Build
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      
+      - name: Build Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./docker/Dockerfile
+          push: false
+          tags: yambo-spark-job:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+  
+  validate-kubernetes:
+    name: Validate Kubernetes Manifests
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Install kubeval
+        run: |
+          wget https://github.com/instrumenta/kubeval/releases/latest/download/kubeval-linux-amd64.tar.gz
+          tar xf kubeval-linux-amd64.tar.gz
+          sudo mv kubeval /usr/local/bin
+      
+      - name: Validate K8s manifests
+        run: |
+          kubeval --ignore-missing-schemas k8s/*.yaml
+
+# PRODUCTION NOTES:
+#
+# This workflow runs on:
+# - Every pull request to develop or main
+# - Every push to develop branch
+#
+# Jobs run in parallel for faster feedback.
+#
+# REQUIRED SECRETS (set in GitHub repo settings):
+# - None for CI (tests run without AWS credentials)
+#
+# FUTURE ENHANCEMENTS:
+# - Security scanning (Snyk, Trivy)
+# - SAST (Static Application Security Testing)
+# - Dependency vulnerability scanning
+# - Performance testing
