@@ -1,0 +1,83 @@
+# Docker build context exclusions
+
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Poetry
+poetry.lock
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Tests
+tests/
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Documentation (private)
+docs/
+
+# Reference projects (don't include in Docker image)
+smartsensor-data-raw2qua-S3-pipeline/
+madto/
+tina/
+
+# Terraform (not needed in Docker)
+terraform/
+*.tfstate
+*.tfstate.*
+.terraform/
+
+# Kubernetes (not needed in Docker)
+k8s/
+
+# Airflow (separate image)
+dags/
+
+# Scripts (not needed in runtime)
+scripts/
+
+# Logs
+logs/
+*.log
+
+# Environment
+.env
+.env.*
+
+# OS
+.DS_Store
+Thumbs.db
