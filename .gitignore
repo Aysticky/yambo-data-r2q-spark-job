@@ -1,5 +1,6 @@
 # Exclude reference smartsensor pipeline (local reference only)
 smartsensor-data-raw2qua-S3-pipeline/
+docs/
 
 # Python
 __pycache__/
