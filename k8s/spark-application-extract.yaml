@@ -1,0 +1,389 @@
+---
+# SparkApplication CRD for extract job
+#
+# This manifest defines the main data extraction Spark job.
+# It fetches data from Stripe API in parallel and writes to S3.
+#
+# USAGE:
+#   kubectl apply -f k8s/spark-application-extract.yaml
+#
+# STATUS:
+#   kubectl get sparkapplication yambo-extract-job -n spark-jobs
+#
+# LOGS:
+#   # Driver logs
+#   kubectl logs yambo-extract-job-driver -n spark-jobs --follow
+#   
+#   # Executor logs
+#   kubectl logs -l spark-role=executor -n spark-jobs --follow
+#
+# DELETE:
+#   kubectl delete sparkapplication yambo-extract-job -n spark-jobs
+apiVersion: sparkoperator.k8s.io/v1beta2
+kind: SparkApplication
+metadata:
+  name: yambo-extract-job
+  namespace: spark-jobs
+  labels:
+    app: yambo-spark-job
+    job-type: extract
+    environment: dev
+    version: v1.0.0
+spec:
+  # Spark application type
+  type: Python
+  
+  # Python version
+  pythonVersion: "3"
+  
+  # Spark mode (cluster for production)
+  mode: cluster
+  
+  # Docker image (from ECR)
+  # Update this after pushing to ECR:
+  # docker push ACCOUNT_ID.dkr.ecr.eu-central-1.amazonaws.com/yambo-spark-job:v1.0.0
+  image: "ACCOUNT_ID.dkr.ecr.eu-central-1.amazonaws.com/yambo-spark-job:v1.0.0"
+  imagePullPolicy: Always
+  
+  # Main application file
+  mainApplicationFile: local:///opt/spark/work-dir/src/spark_jobs/main.py
+  
+  # Arguments passed to main.py
+  arguments:
+    - "--job-type"
+    - "extract"
+    - "--environment"
+    - "dev"
+  
+  # Spark version (must match base image)
+  sparkVersion: "3.5.0"
+  
+  # Restart policy
+  restartPolicy:
+    type: OnFailure
+    onFailureRetries: 3
+    onFailureRetryInterval: 120  # 2 minutes
+    onSubmissionFailureRetries: 1
+    onSubmissionFailureRetryInterval: 60
+  
+  # Dependencies (optional: additional Python packages)
+  # deps:
+  #   pyFiles:
+  #     - local:///opt/spark/work-dir/src/__init__.py
+  
+  # Driver configuration
+  driver:
+    # Driver resources
+    # Driver does orchestration + some processing
+    cores: 2
+    coreLimit: "2400m"
+    memory: "4096m"
+    memoryOverhead: "1024m"
+    
+    # Service account (for IRSA)
+    serviceAccount: spark-job-sa
+    
+    # Environment variables from ConfigMap
+    envFrom:
+      - configMapRef:
+          name: spark-job-config
+    
+    # Additional environment variables
+    env:
+      - name: JOB_NAME
+        value: "yambo-extract-job"
+      - name: JOB_TYPE
+        value: "extract"
+      - name: JOB_ID
+        valueFrom:
+          fieldRef:
+            fieldPath: metadata.name
+      - name: POD_NAME
+        valueFrom:
+          fieldRef:
+            fieldPath: metadata.name
+      - name: POD_NAMESPACE
+        valueFrom:
+          fieldRef:
+            fieldPath: metadata.namespace
+    
+    # Volume mounts (optional: for config files)
+    # volumeMounts:
+    #   - name: log4j-config
+    #     mountPath: /opt/spark/conf/log4j.properties
+    #     subPath: log4j.properties
+    
+    # Labels for monitoring/filtering
+    labels:
+      app: yambo-spark-job
+      job-type: extract
+      environment: dev
+      version: v1.0.0
+      team: data-engineering
+    
+    # Annotations (optional: for service mesh, monitoring)
+    annotations:
+      prometheus.io/scrape: "true"
+      prometheus.io/port: "8090"
+      prometheus.io/path: "/metrics"
+    
+    # Node affinity (optional: prefer on-demand over spot)
+    # affinity:
+    #   nodeAffinity:
+    #     preferredDuringSchedulingIgnoredDuringExecution:
+    #       - weight: 100
+    #         preference:
+    #           matchExpressions:
+    #             - key: "lifecycle"
+    #               operator: In
+    #               values:
+    #                 - "on-demand"
+    
+    # Tolerations (optional)
+    # tolerations:
+    #   - key: "spark"
+    #     operator: "Equal"
+    #     value: "true"
+    #     effect: "NoSchedule"
+  
+  # Executor configuration
+  executor:
+    # Number of executors
+    # Start with 3, can scale to 10 with dynamic allocation
+    instances: 3
+    
+    # Executor resources
+    # Each executor: 4 cores, 8GB memory
+    # This gives us 12 cores, 24GB total for parallel processing
+    cores: 4
+    coreLimit: "4800m"
+    memory: "8192m"
+    memoryOverhead: "2048m"
+    
+    # Labels
+    labels:
+      app: yambo-spark-job
+      job-type: extract
+      environment: dev
+      version: v1.0.0
+    
+    # Node selector (optional: run on specific node pool)
+    # nodeSelector:
+    #   workload: spark
+    #   instance-type: r5.2xlarge  # Memory-optimized
+    
+    # Affinity: Spread executors across AZs
+    affinity:
+      podAntiAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                  - key: spark-role
+                    operator: In
+                    values:
+                      - executor
+              topologyKey: topology.kubernetes.io/zone
+  
+  # Dynamic resource allocation
+  # Scale executors based on workload
+  dynamicAllocation:
+    enabled: true
+    initialExecutors: 3
+    minExecutors: 1
+    maxExecutors: 10
+    shuffleTrackingTimeout: 60  # seconds
+  
+  # Spark configuration overrides
+  sparkConf:
+    # Application settings
+    "spark.app.name": "yambo-extract-job"
+    
+    # S3 configuration
+    "spark.hadoop.fs.s3a.impl": "org.apache.hadoop.fs.s3a.S3AFileSystem"
+    "spark.hadoop.fs.s3a.aws.credentials.provider": "com.amazonaws.auth.WebIdentityTokenCredentialsProvider"
+    "spark.hadoop.fs.s3a.fast.upload": "true"
+    "spark.hadoop.fs.s3a.multipart.size": "104857600"  # 100MB
+    "spark.hadoop.fs.s3a.connection.maximum": "100"
+    "spark.hadoop.fs.s3a.attempts.maximum": "3"
+    "spark.hadoop.fs.s3a.retry.throttle.limit": "3"
+    
+    # Performance tuning
+    "spark.sql.shuffle.partitions": "200"
+    "spark.default.parallelism": "12"  # 3 executors * 4 cores
+    "spark.sql.adaptive.enabled": "true"
+    "spark.sql.adaptive.coalescePartitions.enabled": "true"
+    
+    # Memory management
+    "spark.memory.fraction": "0.6"
+    "spark.memory.storageFraction": "0.5"
+    "spark.executor.memoryOverheadFactor": "0.25"
+    
+    # Serialization
+    "spark.serializer": "org.apache.spark.serializer.KryoSerializer"
+    "spark.kryoserializer.buffer.max": "512m"
+    
+    # Network
+    "spark.network.timeout": "300s"
+    "spark.executor.heartbeatInterval": "30s"
+    "spark.rpc.message.maxSize": "256"
+    
+    # Event logging
+    "spark.eventLog.enabled": "true"
+    "spark.eventLog.dir": "s3a://yambo-spark-logs-dev/event-logs"
+    "spark.eventLog.compress": "true"
+    
+    # UI configuration
+    "spark.ui.enabled": "true"
+    "spark.ui.port": "4040"
+    "spark.ui.retainedJobs": "100"
+    "spark.ui.retainedStages": "100"
+    
+    # Speculation (retry slow tasks)
+    "spark.speculation": "true"
+    "spark.speculation.interval": "100ms"
+    "spark.speculation.multiplier": "1.5"
+    "spark.speculation.quantile": "0.75"
+    
+    # Parquet configuration
+    "spark.sql.parquet.compression.codec": "snappy"
+    "spark.sql.parquet.mergeSchema": "false"
+    "spark.sql.parquet.filterPushdown": "true"
+    
+    # Monitoring
+    "spark.metrics.namespace": "yambo"
+    "spark.metrics.conf.driver.source.jvm.class": "org.apache.spark.metrics.source.JvmSource"
+    "spark.metrics.conf.executor.source.jvm.class": "org.apache.spark.metrics.source.JvmSource"
+  
+  # Hadoop configuration (for S3)
+  hadoopConf:
+    # AWS credentials via IRSA
+    "fs.s3a.aws.credentials.provider": "com.amazonaws.auth.WebIdentityTokenCredentialsProvider"
+    
+    # S3 endpoint (optional: use VPC endpoint)
+    # "fs.s3a.endpoint": "vpce-xxx.s3.eu-central-1.vpce.amazonaws.com"
+    
+    # S3 path style access (for MinIO compatibility)
+    # "fs.s3a.path.style.access": "false"
+  
+  # Volumes (optional: mount config files)
+  # volumes:
+  #   - name: log4j-config
+  #     configMap:
+  #       name: spark-log4j-config
+  
+  # Monitoring and metrics
+  monitoring:
+    exposeDriverMetrics: true
+    exposeExecutorMetrics: true
+    prometheus:
+      jmxExporterJar: "/prometheus/jmx_prometheus_javaagent-0.16.1.jar"
+      port: 8090
+
+---
+# RESOURCE SIZING GUIDE:
+#
+# SMALL DATASET (<1GB/day):
+#   Driver: 2 cores, 4GB
+#   Executors: 2 instances, 2 cores, 4GB each
+#   Total: 6 cores, 12GB
+#
+# MEDIUM DATASET (1-10GB/day):
+#   Driver: 2 cores, 4GB
+#   Executors: 5 instances, 4 cores, 8GB each
+#   Total: 22 cores, 44GB
+#
+# LARGE DATASET (>10GB/day):
+#   Driver: 4 cores, 8GB
+#   Executors: 10 instances, 8 cores, 16GB each
+#   Total: 84 cores, 168GB
+#
+# COST ESTIMATE (eu-central-1, on-demand):
+# - r5.2xlarge: $0.504/hour (8 cores, 64GB)
+# - r5.4xlarge: $1.008/hour (16 cores, 128GB)
+#
+# For medium dataset:
+#   3 x r5.2xlarge = $1.512/hour
+#   Run 2x/day, 30 min per run = $1.512/hour = $45/month total
+#   Per run: 30 min = $0.756/run = $1.512/day = $45/month
+#
+# SPOT SAVINGS:
+#   Use spot instances for 70% savings
+#   2 runs/day × 30 min = 1 hour/day = $0.454/day = $13.6/month
+#
+# PRODUCTION ISSUES:
+#
+# Issue 1: OOM kills on executors
+# Symptom: Executor pods killed with exit code 137
+# Cause: Memory requests too high, or memory overhead not accounted
+# Fix: Increase memoryOverhead (25-40% of executor memory)
+#      Set "spark.executor.memoryOverheadFactor": "0.4"
+#
+# Issue 2: Slow data writes to S3
+# Symptom: Job takes hours, S3 write is bottleneck
+# Cause: Too many small files, S3 throttling
+# Fix: Increase partition size (coalesce before write)
+#      Use "spark.sql.adaptive.coalescePartitions.enabled": "true"
+#      Repartition by date: df.repartition("dt")
+#
+# Issue 3: Data skew on specific dates
+# Symptom: One executor takes 10x longer, others idle
+# Cause: Data unevenly distributed (one date has 10x more data)
+# Fix: Use salting: Add random column, partition by (dt, random)
+#      Enable AQE: "spark.sql.adaptive.enabled": "true"
+#
+# Issue 4: API rate limiting
+# Symptom: Many 429 errors in logs
+# Cause: Too many parallel requests to API
+# Fix: Reduce parallelism: maxParallelism=5 in extract_job.py
+#      Increase rate limiter tokens
+#
+# Issue 5: Driver pod pending (no resources)
+# Symptom: Driver pod stuck in "Pending" state
+# Cause: No nodes with available CPU/memory
+# Fix: Scale EKS node group
+#      Or use cluster autoscaler
+#      Or reduce driver resource requests
+#
+# Issue 6: Executor pods evicted
+# Symptom: Executors terminated with "Evicted" status
+# Cause: Node pressure (memory/disk), or resource limits
+# Fix: Set appropriate resource requests/limits
+#      Use node affinity for memory-optimized instances
+#      Set PriorityClass for production jobs
+#
+# DEBUGGING COMMANDS:
+#
+# Check pod status:
+#   kubectl get pods -n spark-jobs -l app=yambo-spark-job
+#
+# Check Spark application status:
+#   kubectl get sparkapplication yambo-extract-job -n spark-jobs
+#   kubectl describe sparkapplication yambo-extract-job -n spark-jobs
+#
+# View driver logs:
+#   kubectl logs yambo-extract-job-driver -n spark-jobs --tail=100
+#
+# View executor logs:
+#   kubectl logs -l spark-role=executor -n spark-jobs --tail=100
+#
+# Port-forward Spark UI:
+#   kubectl port-forward yambo-extract-job-driver 4040:4040 -n spark-jobs
+#   # Open: http://localhost:4040
+#
+# Check resource usage:
+#   kubectl top pods -n spark-jobs
+#
+# Check events:
+#   kubectl get events -n spark-jobs --sort-by='.lastTimestamp'
+#
+# Debug container:
+#   kubectl exec -it yambo-extract-job-driver -n spark-jobs -- /bin/bash
+#
+# Check IRSA credentials:
+#   kubectl exec -it yambo-extract-job-driver -n spark-jobs -- env | grep AWS
+#
+# Test S3 access:
+#   kubectl exec -it yambo-extract-job-driver -n spark-jobs -- \
+#     python -c "import boto3; print(boto3.client('s3').list_buckets())"

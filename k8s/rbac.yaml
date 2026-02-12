@@ -1,0 +1,153 @@
+---
+# RBAC for Spark Operator
+#
+# Spark Operator needs permissions to:
+# - Create/delete driver and executor pods
+# - Create/delete services for driver UI
+# - Create/delete config maps
+# - Watch SparkApplication CRDs
+#
+# SECURITY PRINCIPLE: Least Privilege
+# - Operator only gets permissions it needs
+# - Scoped to spark-jobs namespace
+# - Job service account has different permissions (AWS IRSA)
+
+# Role for Spark Operator
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: spark-operator-role
+  namespace: spark-jobs
+rules:
+  # Manage pods (driver and executors)
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  
+  # Manage services (for Spark UI)
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get", "list", "create", "delete"]
+  
+  # Manage config maps
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "create", "update", "patch", "delete"]
+  
+  # View events
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "update", "patch"]
+  
+  # Manage SparkApplication CRDs
+  - apiGroups: ["sparkoperator.k8s.io"]
+    resources: ["sparkapplications", "sparkapplications/status"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  
+  # Manage ScheduledSparkApplication CRDs
+  - apiGroups: ["sparkoperator.k8s.io"]
+    resources: ["scheduledsparkapplications", "scheduledsparkapplications/status"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+---
+# RoleBinding for Spark Operator
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: spark-operator-rolebinding
+  namespace: spark-jobs
+subjects:
+  - kind: ServiceAccount
+    name: spark-operator-sa
+    namespace: spark-jobs
+roleRef:
+  kind: Role
+  name: spark-operator-role
+  apiGroup: rbac.authorization.k8s.io
+
+---
+# Role for Spark Job ServiceAccount (used by driver and executors)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: spark-job-role
+  namespace: spark-jobs
+rules:
+  # Driver needs to create executor pods
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["create", "get", "list", "watch", "delete"]
+  
+  # Driver needs to create services
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["create", "get", "delete"]
+  
+  # Driver and executors need to read config maps
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list"]
+
+---
+# RoleBinding for Spark Job ServiceAccount
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: spark-job-rolebinding
+  namespace: spark-jobs
+subjects:
+  - kind: ServiceAccount
+    name: spark-job-sa
+    namespace: spark-jobs
+roleRef:
+  kind: Role
+  name: spark-job-role
+  apiGroup: rbac.authorization.k8s.io
+
+---
+# PRODUCTION ISSUE: RBAC Permission Errors
+#
+# Symptom:
+# - SparkApplication stuck in "Submission Failed" state
+# - Driver pod logs show: "Forbidden: pods is forbidden: User cannot create pods"
+#
+# Root Cause:
+# - Service account doesn't have permissions to create pods
+# - OR wrong service account specified in SparkApplication
+#
+# Debug:
+#   kubectl auth can-i create pods --as=system:serviceaccount:spark-jobs:spark-job-sa -n spark-jobs
+#
+# Fix:
+# - Verify RoleBinding is applied: kubectl get rolebinding -n spark-jobs
+# - Verify Role has correct permissions: kubectl get role spark-job-role -n spark-jobs -o yaml
+# - Check SparkApplication uses correct serviceAccount: spark-job-sa
+#
+# PRODUCTION ISSUE: IRSA Not Working
+#
+# Symptom:
+# - Spark job fails with: "Access Denied" when accessing S3/DynamoDB
+# - OR "Unable to load credentials from service endpoint"
+#
+# Root Cause:
+# - IRSA annotation missing or incorrect
+# - IAM role trust policy doesn't allow OIDC provider
+# - IAM role doesn't have required policies
+#
+# Debug:
+#   # Check annotation
+#   kubectl get sa spark-job-sa -n spark-jobs -o yaml
+#   
+#   # Verify OIDC provider exists
+#   aws iam list-open-id-connect-providers
+#   
+#   # Check trust policy
+#   aws iam get-role --role-name yambo-spark-job-irsa-dev
+#   
+#   # Test from pod
+#   kubectl run -it --rm debug --image=amazon/aws-cli --serviceaccount=spark-job-sa -n spark-jobs -- s3 ls
+#
+# Fix:
+# - Verify Terraform created IAM role and OIDC provider
+# - Update service account annotation with correct ARN
+# - Verify trust policy includes correct OIDC provider and namespace

@@ -1,0 +1,95 @@
+---
+# ConfigMap for Spark job configuration
+#
+# CONFIGURATION STRATEGY:
+# - Environment-agnostic settings in ConfigMap
+# - Secrets in AWS Secrets Manager (not K8s secrets)
+# - Environment-specific overrides in terraform (tags, resource names)
+#
+# WHY ConfigMap vs Environment Variables:
+# - Easier to update (don't need to rebuild image)
+# - Can mount as files for complex config
+# - Shared across multiple jobs
+#
+# PRODUCTION PATTERN:
+# - One ConfigMap per environment (dev, prod)
+# - Version in git (GitOps)
+# - Update via CI/CD (kubectl apply)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: spark-job-config
+  namespace: spark-jobs
+  labels:
+    app: yambo-spark-job
+    environment: dev
+data:
+  # AWS Configuration
+  AWS_REGION: "eu-central-1"
+  AWS_DEFAULT_REGION: "eu-central-1"
+  
+  # Environment
+  ENVIRONMENT: "dev"
+  
+  # S3 Buckets (created by Terraform)
+  DATA_LAKE_BUCKET: "yambo-data-lake-dev"
+  SPARK_LOGS_BUCKET: "yambo-spark-logs-dev"
+  
+  # DynamoDB Tables (created by Terraform)
+  CHECKPOINT_TABLE: "yambo-checkpoints-dev"
+  JOB_METADATA_TABLE: "yambo-job-metadata-dev"
+  
+  # API Configuration
+  API_BASE_URL: "https://api.stripe.com"
+  API_PAGE_SIZE: "100"
+  API_RATE_LIMIT: "100"  # requests per second
+  
+  # Job Configuration
+  CHECKPOINT_LOOKBACK_SECONDS: "300"  # 5 minutes
+  MAX_PARALLELISM: "10"
+  WRITE_MODE: "append"  # or "overwrite"
+  
+  # Spark Configuration Overrides
+  # (These override spark-defaults.conf)
+  SPARK_EXECUTOR_MEMORY: "4g"
+  SPARK_EXECUTOR_CORES: "2"
+  SPARK_DRIVER_MEMORY: "2g"
+  
+  # Logging
+  LOG_LEVEL: "INFO"
+  STRUCTURED_LOGGING: "true"
+  
+  # Retry Configuration
+  MAX_RETRIES: "3"
+  RETRY_BACKOFF_SECONDS: "2"
+  
+  # Data Quality
+  MIN_QUALITY_SCORE: "70"
+
+---
+# ConfigMap for log4j configuration
+# (Optional: Custom logging configuration)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: spark-log4j-config
+  namespace: spark-jobs
+data:
+  log4j.properties: |
+    # Root logger
+    log4j.rootCategory=INFO, console
+    
+    # Console appender
+    log4j.appender.console=org.apache.log4j.ConsoleAppender
+    log4j.appender.console.target=System.err
+    log4j.appender.console.layout=org.apache.log4j.PatternLayout
+    log4j.appender.console.layout.ConversionPattern=%d{yy/MM/dd HH:mm:ss} %p %c{1}: %m%n
+    
+    # Reduce verbosity for Spark internals
+    log4j.logger.org.apache.spark=WARN
+    log4j.logger.org.spark_project=WARN
+    log4j.logger.org.apache.hadoop=WARN
+    log4j.logger.org.apache.parquet=WARN
+    
+    # Application logging
+    log4j.logger.src=INFO

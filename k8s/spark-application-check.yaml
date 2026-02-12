@@ -1,0 +1,200 @@
+---
+# SparkApplication CRD for check job
+#
+# This manifest defines a Spark job that runs pre-flight checks before extraction.
+# It's submitted to the Spark Operator, which creates driver and executor pods.
+#
+# USAGE:
+#   kubectl apply -f k8s/spark-application-check.yaml
+#
+# STATUS:
+#   kubectl get sparkapplication yambo-check-job -n spark-jobs
+#   kubectl describe sparkapplication yambo-check-job -n spark-jobs
+#
+# LOGS:
+#   kubectl logs yambo-check-job-driver -n spark-jobs --follow
+#
+# DELETE:
+#   kubectl delete sparkapplication yambo-check-job -n spark-jobs
+apiVersion: sparkoperator.k8s.io/v1beta2
+kind: SparkApplication
+metadata:
+  name: yambo-check-job
+  namespace: spark-jobs
+  labels:
+    app: yambo-spark-job
+    job-type: check
+    environment: dev
+    version: v1.0.0
+spec:
+  # Spark application type
+  type: Python
+  
+  # Python version
+  pythonVersion: "3"
+  
+  # Spark mode (cluster for production)
+  mode: cluster
+  
+  # Docker image (from ECR)
+  image: "ACCOUNT_ID.dkr.ecr.eu-central-1.amazonaws.com/yambo-spark-job:v1.0.0"
+  imagePullPolicy: Always
+  
+  # Main application file
+  mainApplicationFile: local:///opt/spark/work-dir/src/spark_jobs/main.py
+  
+  # Arguments passed to main.py
+  arguments:
+    - "--job-type"
+    - "check"
+    - "--environment"
+    - "dev"
+  
+  # Spark version
+  sparkVersion: "3.5.0"
+  
+  # Restart policy
+  # - Never: For batch jobs (default)
+  # - OnFailure: Retry on failure
+  # - Always: For streaming jobs
+  restartPolicy:
+    type: OnFailure
+    onFailureRetries: 2
+    onFailureRetryInterval: 60  # seconds
+    onSubmissionFailureRetries: 1
+    onSubmissionFailureRetryInterval: 30
+  
+  # Driver configuration
+  driver:
+    # Driver pod name
+    # (Will be: yambo-check-job-driver)
+    
+    # Driver resources
+    cores: 1
+    coreLimit: "1200m"  # Allow bursting
+    memory: "2048m"
+    memoryOverhead: "512m"  # JVM overhead
+    
+    # Service account (for IRSA)
+    serviceAccount: spark-job-sa
+    
+    # Environment variables from ConfigMap
+    envFrom:
+      - configMapRef:
+          name: spark-job-config
+    
+    # Additional environment variables
+    env:
+      - name: JOB_NAME
+        value: "yambo-check-job"
+      - name: JOB_TYPE
+        value: "check"
+    
+    # Labels
+    labels:
+      app: yambo-spark-job
+      job-type: check
+      environment: dev
+      version: v1.0.0
+    
+    # Node selector (optional: run on specific nodes)
+    # nodeSelector:
+    #   workload: spark
+    
+    # Tolerations (optional: tolerate node taints)
+    # tolerations:
+    #   - key: "spark"
+    #     operator: "Equal"
+    #     value: "true"
+    #     effect: "NoSchedule"
+  
+  # Executor configuration
+  executor:
+    # Number of executors
+    # Check job doesn't need executors (validation only)
+    instances: 0
+    
+    # Executor resources (not used but required)
+    cores: 1
+    memory: "1024m"
+    
+    # Labels
+    labels:
+      app: yambo-spark-job
+      job-type: check
+      environment: dev
+      version: v1.0.0
+  
+  # Spark configuration overrides
+  sparkConf:
+    # S3 configuration
+    "spark.hadoop.fs.s3a.impl": "org.apache.hadoop.fs.s3a.S3AFileSystem"
+    "spark.hadoop.fs.s3a.aws.credentials.provider": "com.amazonaws.auth.WebIdentityTokenCredentialsProvider"
+    "spark.hadoop.fs.s3a.fast.upload": "true"
+    
+    # Event logging
+    "spark.eventLog.enabled": "true"
+    "spark.eventLog.dir": "s3a://yambo-spark-logs-dev/event-logs"
+    
+    # UI configuration
+    "spark.ui.enabled": "true"
+    "spark.ui.port": "4040"
+    
+    # Monitoring
+    "spark.metrics.conf.driver.source.jvm.class": "org.apache.spark.metrics.source.JvmSource"
+    "spark.metrics.conf.executor.source.jvm.class": "org.apache.spark.metrics.source.JvmSource"
+  
+  # Monitoring and UI
+  monitoring:
+    exposeDriverMetrics: true
+    exposeExecutorMetrics: true
+    prometheus:
+      jmxExporterJar: "/prometheus/jmx_prometheus_javaagent-0.16.1.jar"
+      port: 8090
+
+---
+# PRODUCTION NOTES:
+#
+# RESOURCE SIZING:
+# Check job is lightweight (API validation, no data processing).
+# Driver: 1 core, 2GB memory is sufficient.
+# Executors: Not needed (validation runs on driver only).
+#
+# COST OPTIMIZATION:
+# - Use spot instances for non-critical jobs
+# - Set appropriate resource limits to prevent over-provisioning
+# - Use node affinity to run on cheaper instance types
+#
+# FAILURE SCENARIOS:
+#
+# 1. Image pull failure
+#    Symptom: Driver pod in "ImagePullBackOff"
+#    Cause: Image doesn't exist in ECR, or no pull permissions
+#    Fix: Verify image exists, check IRSA has ecr:GetAuthorizationToken
+#
+# 2. Service account not found
+#    Symptom: "Error creating pod: serviceaccounts 'spark-job-sa' not found"
+#    Cause: Service account not created or wrong namespace
+#    Fix: kubectl apply -f k8s/service-account.yaml
+#
+# 3. RBAC permission denied
+#    Symptom: "pods is forbidden: User cannot create pods"
+#    Cause: Service account doesn't have permissions
+#    Fix: kubectl apply -f k8s/rbac.yaml
+#
+# 4. Resource quota exceeded
+#    Symptom: "exceeded quota: pods"
+#    Cause: Namespace has resource quota limits
+#    Fix: Increase quota or delete old pods
+#
+# 5. Node capacity issues
+#    Symptom: Driver pod "Pending" with "Insufficient cpu"
+#    Cause: No nodes with available resources
+#    Fix: Scale EKS node group, or reduce resource requests
+#
+# MONITORING:
+# - Check driver logs: kubectl logs yambo-check-job-driver -n spark-jobs
+# - Check pod status: kubectl get pods -n spark-jobs
+# - Check Spark UI: kubectl port-forward yambo-check-job-driver 4040:4040 -n spark-jobs
+# - Check CloudWatch logs (if configured)
+# - Check Spark event logs in S3: s3://yambo-spark-logs-dev/event-logs/

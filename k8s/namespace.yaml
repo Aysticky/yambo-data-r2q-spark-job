@@ -1,0 +1,24 @@
+---
+# Namespace for Spark jobs
+# 
+# NAMESPACE ISOLATION BENEFITS:
+# - Resource quotas (limit compute/memory per environment)
+# - Network policies (isolate traffic)
+# - RBAC boundaries (separate permissions)
+# - Cost tracking (namespace-level tags)
+#
+# PRODUCTION STRATEGY:
+# - Use dedicated namespace per environment (spark-jobs-dev, spark-jobs-prod)
+# - Apply resource quotas to prevent runaway jobs
+# - Use network policies to restrict egress
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: spark-jobs
+  labels:
+    name: spark-jobs
+    environment: dev
+    owner: yambo-platform-team
+    cost-center: data-engineering
+  annotations:
+    description: "Spark jobs for REST API to S3 data pipeline"

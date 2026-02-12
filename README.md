@@ -245,16 +245,19 @@ yambo-data-r2q-spark-job/
 | Resource | Dev | Prod | Monthly Cost (est.) |
 |----------|-----|------|---------------------|
 | EKS Control Plane | $72 | $72 | $144 |
-| EKS Nodes (t3.xlarge) | 2 × 8h/day | 3 × 24h | $100-300 |
+| EKS Nodes (r5.2xlarge) | 2 runs/day × 30 min | 2 runs/day × 30 min | $45 (on-demand) / $14 (spot) |
 | S3 Storage (1TB) | - | - | $23 |
 | DynamoDB (on-demand) | - | - | $10 |
 | Airflow (t3.medium) | 1 | 2 | $50 |
-| **Total** | **~$180/mo** | **~$400/mo** | **~$580/mo** |
+| ECR, Secrets, Logs | - | - | $10-20 |
+| **Total (spot)** | **~$115/mo** | **~$190/mo** | **~$305/mo** |
+| **Total (on-demand)** | **~$145/mo** | **~$220/mo** | **~$365/mo** |
 
 **Cost-saving strategies:**
-- Use Spot instances for Spark executors (70% cheaper)
+- Use Spot instances for Spark executors (70% cheaper) - **RECOMMENDED**
+- Run jobs 2x/day instead of continuous (30 min per run vs 24/7)
 - Scale EKS nodes to zero during off-hours (dev)
-- Use S3 Intelligent-Tiering
+- Use S3 Intelligent-Tiering for older data
 - Right-size executor memory/CPU based on data volume
 
 ## Monitoring & Alerts
