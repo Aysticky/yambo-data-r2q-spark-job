@@ -22,8 +22,9 @@
 #   docker tag yambo-spark-job:v1.0.0 <account>.dkr.ecr.eu-central-1.amazonaws.com/yambo-spark-job:v1.0.0
 #   docker push <account>.dkr.ecr.eu-central-1.amazonaws.com/yambo-spark-job:v1.0.0
 
-# Stage 1: Base Spark image
-FROM apache/spark-py:v3.5.0 as base
+# Stage 1: Base Spark image  
+# Using apache/spark with Python support
+FROM apache/spark:3.5.0 AS base
 
 # Metadata
 LABEL maintainer="yambo-platform-team"
@@ -39,9 +40,9 @@ USER root
 # - tini: Init system for proper signal handling
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-        curl=7.88.1-10+deb12u5 \
-        procps=2:4.0.2-3 \
-        tini=0.19.0-1 && \
+        curl \
+        procps \
+        tini && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
@@ -55,7 +56,7 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /opt/spark/work-dir
 
 # Stage 2: Dependencies
-FROM base as dependencies
+FROM base AS dependencies
 
 # Copy dependency files
 COPY docker/requirements.txt /tmp/requirements.txt
@@ -68,7 +69,7 @@ RUN pip install --no-cache-dir --upgrade pip==23.3.1 && \
     rm /tmp/requirements.txt
 
 # Stage 3: Application
-FROM dependencies as application
+FROM dependencies AS application
 
 # Copy Spark configuration
 COPY docker/spark-defaults.conf $SPARK_HOME/conf/spark-defaults.conf

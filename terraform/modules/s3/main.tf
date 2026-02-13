@@ -65,7 +65,7 @@ resource "aws_s3_bucket" "data_lake" {
     var.common_tags,
     {
       Name    = "${var.project_name}-${var.environment}-data-lake"
-      Purpose = "Data lake for raw, staging, and curated zones"
+      Purpose = "DataLakeRawStagingCurated"
     }
   )
 }
@@ -220,7 +220,7 @@ resource "aws_s3_bucket" "spark_logs" {
     var.common_tags,
     {
       Name    = "${var.project_name}-${var.environment}-spark-logs"
-      Purpose = "Spark event logs for History Server"
+      Purpose = "SparkEventLogsHistoryServer"
     }
   )
 }
@@ -231,6 +231,8 @@ resource "aws_s3_bucket_lifecycle_configuration" "spark_logs" {
   rule {
     id     = "spark-logs-retention"
     status = "Enabled"
+
+    filter {}  # Empty filter applies to all objects
 
     expiration {
       days = var.environment == "prod" ? 90 : 30

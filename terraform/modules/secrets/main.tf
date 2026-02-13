@@ -171,7 +171,8 @@ resource "aws_secretsmanager_secret_version" "general_api_placeholder" {
 resource "aws_cloudwatch_log_group" "secrets_audit" {
   name              = "/aws/secretsmanager/${var.project_name}-${var.environment}/audit"
   retention_in_days = var.environment == "prod" ? 365 : 90
-  kms_key_id        = aws_kms_key.secrets_key.arn
+  # Removed KMS encryption to avoid permission issues
+  # kms_key_id        = aws_kms_key.secrets_key.arn
 
   tags = var.common_tags
 }

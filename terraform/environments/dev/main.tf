@@ -34,7 +34,7 @@ provider "aws" {
 
   default_tags {
     tags = {
-      Project     = "Yambo Data Pipeline"
+      Project     = "YamboDataPipeline"
       Environment = "dev"
       ManagedBy   = "Terraform"
       Repository  = "yambo-data-r2q-spark-job"
@@ -54,7 +54,7 @@ locals {
   aws_region     = data.aws_region.current.name
 
   common_tags = {
-    Project     = "Yambo Data Pipeline"
+    Project     = "YamboDataPipeline"
     Environment = "dev"
     ManagedBy   = "Terraform"
   }
@@ -102,7 +102,8 @@ module "eks" {
 
   project_name    = local.project_name
   environment     = local.environment
-  cluster_version = "1.28"
+  aws_region      = var.aws_region
+  cluster_version = "1.29"  # Incremental upgrade: 1.28 -> 1.29 (AWS requires step-by-step)
   common_tags     = local.common_tags
 }
 

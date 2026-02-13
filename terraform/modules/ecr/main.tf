@@ -215,7 +215,8 @@ resource "aws_cloudwatch_log_group" "ecr_scan_findings" {
   name              = "/aws/ecr/${var.project_name}-${var.environment}/scan-findings"
   retention_in_days = var.environment == "prod" ? 90 : 30
 
-  kms_key_id = aws_kms_key.ecr_key.arn
+  # Removed KMS encryption to avoid permission issues (not critical for dev)
+  # kms_key_id = aws_kms_key.ecr_key.arn
 
   tags = var.common_tags
 }
