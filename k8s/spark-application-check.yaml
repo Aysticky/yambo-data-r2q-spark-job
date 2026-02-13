@@ -37,7 +37,7 @@ spec:
   mode: cluster
   
   # Docker image (from ECR)
-  image: "ACCOUNT_ID.dkr.ecr.eu-central-1.amazonaws.com/yambo-spark-job:v1.0.0"
+  image: "120569615884.dkr.ecr.eu-central-1.amazonaws.com/yambo-dev-spark-job:v1.0.6"
   imagePullPolicy: Always
   
   # Main application file
@@ -89,6 +89,16 @@ spec:
         value: "yambo-check-job"
       - name: JOB_TYPE
         value: "check"
+      - name: ENVIRONMENT
+        value: "dev"
+      - name: AWS_REGION
+        value: "eu-central-1"
+      - name: S3_DATA_BUCKET
+        value: "yambo-dev-data-lake"
+      - name: DYNAMODB_CHECKPOINT_TABLE
+        value: "yambo-dev-checkpoints"
+      - name: SECRETS_MANAGER_SECRET_NAME
+        value: "yambo/dev/stripe-api"
     
     # Labels
     labels:
@@ -111,10 +121,10 @@ spec:
   # Executor configuration
   executor:
     # Number of executors
-    # Check job doesn't need executors (validation only)
-    instances: 0
+    # Check job doesn't need heavy processing but Spark requires at least 1
+    instances: 1
     
-    # Executor resources (not used but required)
+    # Executor resources (minimal for check job)
     cores: 1
     memory: "1024m"
     
@@ -127,14 +137,21 @@ spec:
   
   # Spark configuration overrides
   sparkConf:
+    # Environment variables (set via sparkConf since envFrom doesn't always propagate)
+    "spark.kubernetes.driver.env.ENVIRONMENT": "dev"
+    "spark.kubernetes.driver.env.AWS_REGION": "eu-central-1"
+    "spark.kubernetes.driver.env.S3_DATA_BUCKET": "yambo-dev-data-lake"
+    "spark.kubernetes.driver.env.DYNAMODB_CHECKPOINT_TABLE": "yambo-dev-checkpoints"
+    "spark.kubernetes.driver.env.SECRETS_MANAGER_SECRET_NAME": "yambo/dev/stripe-api"
+    
     # S3 configuration
     "spark.hadoop.fs.s3a.impl": "org.apache.hadoop.fs.s3a.S3AFileSystem"
     "spark.hadoop.fs.s3a.aws.credentials.provider": "com.amazonaws.auth.WebIdentityTokenCredentialsProvider"
     "spark.hadoop.fs.s3a.fast.upload": "true"
     
-    # Event logging
-    "spark.eventLog.enabled": "true"
-    "spark.eventLog.dir": "s3a://yambo-spark-logs-dev/event-logs"
+    # Event logging (disabled temporarily due to IRSA setup)
+    "spark.eventLog.enabled": "false"
+    "spark.eventLog.dir": ""
     
     # UI configuration
     "spark.ui.enabled": "true"
@@ -143,14 +160,6 @@ spec:
     # Monitoring
     "spark.metrics.conf.driver.source.jvm.class": "org.apache.spark.metrics.source.JvmSource"
     "spark.metrics.conf.executor.source.jvm.class": "org.apache.spark.metrics.source.JvmSource"
-  
-  # Monitoring and UI
-  monitoring:
-    exposeDriverMetrics: true
-    exposeExecutorMetrics: true
-    prometheus:
-      jmxExporterJar: "/prometheus/jmx_prometheus_javaagent-0.16.1.jar"
-      port: 8090
 
 ---
 # PRODUCTION NOTES:

@@ -70,7 +70,7 @@ class AWSConfig:
             ),
             secrets_manager_secret_name=os.getenv(
                 "SECRETS_MANAGER_SECRET_NAME",
-                f"yambo/{environment}/api-credentials"
+                f"yambo/{environment}/stripe-api"
             ),
         )
 

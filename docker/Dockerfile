@@ -23,8 +23,8 @@
 #   docker push <account>.dkr.ecr.eu-central-1.amazonaws.com/yambo-spark-job:v1.0.0
 
 # Stage 1: Base Spark image  
-# Using apache/spark with Python support
-FROM apache/spark:3.5.0 AS base
+# Using apache/spark with Python 3 support
+FROM apache/spark:3.5.0-python3 AS base
 
 # Metadata
 LABEL maintainer="yambo-platform-team"
@@ -38,11 +38,13 @@ USER root
 # - curl: Health checks and debugging
 # - procps: Process monitoring (ps, top)
 # - tini: Init system for proper signal handling
+# - python3-symlink: Create python -> python3 symlink
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         curl \
         procps \
         tini && \
+    ln -sf /usr/bin/python3 /usr/local/bin/python && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
@@ -51,6 +53,11 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONPATH=/opt/spark/work-dir:$PYTHONPATH \
     SPARK_HOME=/opt/spark \
     PATH=$SPARK_HOME/bin:$PATH
+
+# Download Hadoop AWS JARs for S3 support
+# Required for s3a:// file system access
+RUN curl -L https://repo1.maven.org/maven2/org/apache/hadoop/hadoop-aws/3.3.4/hadoop-aws-3.3.4.jar -o $SPARK_HOME/jars/hadoop-aws-3.3.4.jar && \
+    curl -L https://repo1.maven.org/maven2/com/amazonaws/aws-java-sdk-bundle/1.12.367/aws-java-sdk-bundle-1.12.367.jar -o $SPARK_HOME/jars/aws-java-sdk-bundle-1.12.367.jar
 
 # Create work directory
 WORKDIR /opt/spark/work-dir
@@ -93,11 +100,9 @@ USER spark
 # Set working directory
 WORKDIR /opt/spark/work-dir
 
-# Default entrypoint (can be overridden by spark-submit)
-ENTRYPOINT ["/usr/bin/tini", "--", "python", "-m", "src.spark_jobs.main"]
-
-# Default arguments (can be overridden)
-CMD ["--job-type", "check", "--environment", "dev"]
+# No custom entrypoint - let Spark Operator handle execution
+# The SparkApplication manifest specifies mainApplicationFile
+# Spark will invoke: spark-submit ... local:///opt/spark/work-dir/src/spark_jobs/main.py
 
 # DOCKER IMAGE SIZE OPTIMIZATION:
 #

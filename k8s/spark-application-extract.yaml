@@ -41,8 +41,8 @@ spec:
   
   # Docker image (from ECR)
   # Update this after pushing to ECR:
-  # docker push ACCOUNT_ID.dkr.ecr.eu-central-1.amazonaws.com/yambo-spark-job:v1.0.0
-  image: "ACCOUNT_ID.dkr.ecr.eu-central-1.amazonaws.com/yambo-spark-job:v1.0.0"
+  # docker push 120569615884.dkr.ecr.eu-central-1.amazonaws.com/yambo-dev-spark-job:v1.0.6
+  image: "120569615884.dkr.ecr.eu-central-1.amazonaws.com/yambo-dev-spark-job:v1.0.6"
   imagePullPolicy: Always
   
   # Main application file
@@ -94,6 +94,16 @@ spec:
         value: "yambo-extract-job"
       - name: JOB_TYPE
         value: "extract"
+      - name: ENVIRONMENT
+        value: "dev"
+      - name: AWS_REGION
+        value: "eu-central-1"
+      - name: S3_DATA_BUCKET
+        value: "yambo-dev-data-lake"
+      - name: DYNAMODB_CHECKPOINT_TABLE
+        value: "yambo-dev-checkpoints"
+      - name: SECRETS_MANAGER_SECRET_NAME
+        value: "yambo/dev/stripe-api"
       - name: JOB_ID
         valueFrom:
           fieldRef:
@@ -229,9 +239,9 @@ spec:
     "spark.executor.heartbeatInterval": "30s"
     "spark.rpc.message.maxSize": "256"
     
-    # Event logging
-    "spark.eventLog.enabled": "true"
-    "spark.eventLog.dir": "s3a://yambo-spark-logs-dev/event-logs"
+    # Event logging (disabled temporarily due to IRSA setup)
+    "spark.eventLog.enabled": "false"
+    # "spark.eventLog.dir": "s3a://yambo-dev-spark-logs/event-logs"
     "spark.eventLog.compress": "true"
     
     # UI configuration
@@ -272,14 +282,6 @@ spec:
   #   - name: log4j-config
   #     configMap:
   #       name: spark-log4j-config
-  
-  # Monitoring and metrics
-  monitoring:
-    exposeDriverMetrics: true
-    exposeExecutorMetrics: true
-    prometheus:
-      jmxExporterJar: "/prometheus/jmx_prometheus_javaagent-0.16.1.jar"
-      port: 8090
 
 ---
 # RESOURCE SIZING GUIDE:

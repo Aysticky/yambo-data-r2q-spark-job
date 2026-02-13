@@ -314,7 +314,9 @@ def main():
         extra={
             "environment": config.environment.value,
             "aws_region": config.aws.region,
-            "s3_bucket": config.aws.s3_bucket
+            "s3_bucket": config.aws.s3_bucket,
+            "secret_name": config.aws.secrets_manager_secret_name,
+            "dynamodb_table": config.aws.dynamodb_checkpoint_table
         }
     )
     

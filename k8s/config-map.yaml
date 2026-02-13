@@ -32,12 +32,15 @@ data:
   ENVIRONMENT: "dev"
   
   # S3 Buckets (created by Terraform)
-  DATA_LAKE_BUCKET: "yambo-data-lake-dev"
-  SPARK_LOGS_BUCKET: "yambo-spark-logs-dev"
+  S3_DATA_BUCKET: "yambo-dev-data-lake"
+  SPARK_LOGS_BUCKET: "yambo-dev-spark-logs"
   
   # DynamoDB Tables (created by Terraform)
-  CHECKPOINT_TABLE: "yambo-checkpoints-dev"
-  JOB_METADATA_TABLE: "yambo-job-metadata-dev"
+  DYNAMODB_CHECKPOINT_TABLE: "yambo-dev-checkpoints"
+  JOB_METADATA_TABLE: "yambo-dev-job-metadata"
+  
+  # Secrets Manager
+  SECRETS_MANAGER_SECRET_NAME: "yambo/dev/stripe-api"
   
   # API Configuration
   API_BASE_URL: "https://api.stripe.com"
