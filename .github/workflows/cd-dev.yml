@@ -1,19 +1,27 @@
 name: CD - Deploy to Dev
 
 on:
-  push:
+  workflow_run:
+    workflows: ["CI - Test and Lint"]
+    types: [completed]
     branches: [develop]
   workflow_dispatch:  # Manual trigger
 
+# DEV DEPLOYMENT STRATEGY:
+# - Auto-deploy after CI passes on develop branch
+# - No manual approval required
+# - Deploy Docker image, infrastructure, and Kubernetes manifests
+
 env:
   AWS_REGION: eu-central-1
-  ECR_REPOSITORY: yambo-spark-job
+  ECR_REPOSITORY: yambo-dev-spark-job
   EKS_CLUSTER_NAME: yambo-dev-eks
 
 jobs:
   build-and-push:
     name: Build and Push Docker Image
     runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
     permissions:
       id-token: write  # For OIDC
       contents: read
