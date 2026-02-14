@@ -1,0 +1,105 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: spark-history-server
+  namespace: spark-jobs
+  labels:
+    app: spark-history-server
+spec:
+  type: LoadBalancer
+  ports:
+    - port: 18080
+      targetPort: 18080
+      protocol: TCP
+      name: http
+  selector:
+    app: spark-history-server
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: spark-history-server
+  namespace: spark-jobs
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::120569615884:role/yambo-dev-spark-role
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: spark-history-server
+  namespace: spark-jobs
+  labels:
+    app: spark-history-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: spark-history-server
+  template:
+    metadata:
+      labels:
+        app: spark-history-server
+    spec:
+      serviceAccountName: spark-history-server
+      initContainers:
+        - name: download-s3a-jars
+          image: busybox:latest
+          command:
+            - sh
+            - -c
+            - |
+              # Download S3A dependencies to shared volume
+              wget -P /jars https://repo1.maven.org/maven2/org/apache/hadoop/hadoop-aws/3.3.4/hadoop-aws-3.3.4.jar
+              wget -P /jars https://repo1.maven.org/maven2/com/amazonaws/aws-java-sdk-bundle/1.12.367/aws-java-sdk-bundle-1.12.367.jar
+          volumeMounts:
+            - name: s3a-jars
+              mountPath: /jars
+      containers:
+        - name: spark-history-server
+          image: apache/spark:3.5.0-python3
+          imagePullPolicy: Always
+          command:
+            - sh
+            - -c
+            - |
+              # Copy S3A JARs to Spark jars directory
+              cp /jars/*.jar /opt/spark/jars/
+              # Start History Server
+              /opt/spark/bin/spark-class org.apache.spark.deploy.history.HistoryServer
+          ports:
+            - containerPort: 18080
+              name: http
+          env:
+            - name: SPARK_NO_DAEMONIZE
+              value: "true"
+            - name: SPARK_HISTORY_OPTS
+              value: >-
+                -Dspark.history.fs.logDirectory=s3a://yambo-dev-spark-logs/event-logs
+                -Dspark.history.ui.port=18080
+                -Dspark.hadoop.fs.s3a.impl=org.apache.hadoop.fs.s3a.S3AFileSystem
+                -Dspark.hadoop.fs.s3a.aws.credentials.provider=com.amazonaws.auth.WebIdentityTokenCredentialsProvider
+          volumeMounts:
+            - name: s3a-jars
+              mountPath: /jars
+          resources:
+            requests:
+              memory: "1Gi"
+              cpu: "500m"
+            limits:
+              memory: "2Gi"
+              cpu: "1000m"
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 18080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 18080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+      volumes:
+        - name: s3a-jars
+          emptyDir: {}
