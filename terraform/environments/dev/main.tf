@@ -142,3 +142,8 @@ output "eks_cluster_name" {
   description = "EKS cluster name"
   value       = module.eks.cluster_name
 }
+
+output "spark_job_irsa_role_arn" {
+  description = "IAM role ARN for Spark jobs (IRSA)"
+  value       = module.eks.spark_job_irsa_role_arn
+}

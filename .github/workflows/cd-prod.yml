@@ -88,6 +88,9 @@ jobs:
     needs: build-and-push
     environment: production
     
+    outputs:
+      irsa_role_arn: ${{ steps.terraform-outputs.outputs.irsa_arn }}
+    
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -118,6 +121,13 @@ jobs:
         run: |
           cd terraform/environments/prod
           terraform apply -auto-approve tfplan
+      
+      - name: Get Terraform outputs
+        id: terraform-outputs
+        run: |
+          cd terraform/environments/prod
+          IRSA_ARN=$(terraform output -raw spark_job_irsa_role_arn)
+          echo "irsa_arn=$IRSA_ARN" >> $GITHUB_OUTPUT
   
   deploy-kubernetes:
     name: Deploy Kubernetes Manifests
@@ -136,28 +146,15 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY_PROD }}
           aws-region: ${{ env.AWS_REGION }}
       
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: 1.6.0
-      
       - name: Update kubeconfig
         run: |
           aws eks update-kubeconfig --name ${{ env.EKS_CLUSTER_NAME }} --region ${{ env.AWS_REGION }}
-      
-      - name: Get IRSA role ARN
-        id: get-irsa
-        run: |
-          cd terraform/environments/prod
-          terraform init
-          IRSA_ARN=$(terraform output -raw spark_job_irsa_role_arn)
-          echo "irsa_arn=$IRSA_ARN" >> $GITHUB_OUTPUT
       
       - name: Update service account with IRSA
         run: |
           kubectl annotate serviceaccount spark-job-sa \
             -n spark-jobs \
-            eks.amazonaws.com/role-arn=${{ steps.get-irsa.outputs.irsa_arn }} \
+            eks.amazonaws.com/role-arn=${{ needs.deploy-infrastructure.outputs.irsa_role_arn }} \
             --overwrite
       
       - name: Apply Kubernetes manifests
