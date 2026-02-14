@@ -29,7 +29,7 @@ jobs:
       
       - name: Install dependencies
         run: |
-          poetry install --no-root --only main --with dev
+          poetry install --no-root --without airflow
       
       - name: Run flake8
         run: |
@@ -62,7 +62,7 @@ jobs:
       
       - name: Install dependencies
         run: |
-          poetry install --only main --with dev
+          poetry install --without airflow
       
       - name: Run tests
         run: |
