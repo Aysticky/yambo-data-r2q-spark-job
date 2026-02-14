@@ -41,8 +41,8 @@ spec:
   
   # Docker image (from ECR)
   # Update this after pushing to ECR:
-  # docker push 120569615884.dkr.ecr.eu-central-1.amazonaws.com/yambo-dev-spark-job:v1.0.6
-  image: "120569615884.dkr.ecr.eu-central-1.amazonaws.com/yambo-dev-spark-job:v1.0.6"
+  # docker push 120569615884.dkr.ecr.eu-central-1.amazonaws.com/yambo-dev-spark-job:v1.0.12
+  image: "120569615884.dkr.ecr.eu-central-1.amazonaws.com/yambo-dev-spark-job:v1.0.12"
   imagePullPolicy: Always
   
   # Main application file
@@ -239,9 +239,9 @@ spec:
     "spark.executor.heartbeatInterval": "30s"
     "spark.rpc.message.maxSize": "256"
     
-    # Event logging (disabled temporarily due to IRSA setup)
-    "spark.eventLog.enabled": "false"
-    # "spark.eventLog.dir": "s3a://yambo-dev-spark-logs/event-logs"
+    # Event logging (for Spark History Server)
+    "spark.eventLog.enabled": "true"
+    "spark.eventLog.dir": "s3a://yambo-dev-spark-logs/event-logs"
     "spark.eventLog.compress": "true"
     
     # UI configuration

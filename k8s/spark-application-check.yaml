@@ -149,9 +149,10 @@ spec:
     "spark.hadoop.fs.s3a.aws.credentials.provider": "com.amazonaws.auth.WebIdentityTokenCredentialsProvider"
     "spark.hadoop.fs.s3a.fast.upload": "true"
     
-    # Event logging (disabled temporarily due to IRSA setup)
-    "spark.eventLog.enabled": "false"
-    "spark.eventLog.dir": ""
+    # Event logging (for Spark History Server)
+    "spark.eventLog.enabled": "true"
+    "spark.eventLog.dir": "s3a://yambo-dev-spark-logs/event-logs"
+    "spark.eventLog.compress": "true"
     
     # UI configuration
     "spark.ui.enabled": "true"

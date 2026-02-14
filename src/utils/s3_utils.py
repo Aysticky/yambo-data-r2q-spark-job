@@ -75,9 +75,9 @@ def construct_s3_path(
             date=datetime(2026, 2, 12),
             run_id="run-1707696000"
         )
-        # Output: s3://yambo-prod-data-lake/raw/stripe_charges/dt=2026-02-12/run_id=run-1707696000/
+        # Output: s3a://yambo-prod-data-lake/raw/stripe_charges/dt=2026-02-12/run_id=run-1707696000/
     """
-    path_parts = [f"s3://{bucket}", prefix]
+    path_parts = [f"s3a://{bucket}", prefix]
     
     # Date partition (always include)
     path_parts.append(f"dt={date.strftime('%Y-%m-%d')}")
