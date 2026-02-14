@@ -204,6 +204,10 @@ jobs:
       
       - name: Run check job
         run: |
+          # Delete existing job if it exists (fresh run)
+          kubectl delete sparkapplication yambo-check-job -n spark-jobs --ignore-not-found=true
+          
+          # Create new check job
           kubectl create -f k8s/spark-application-check.yaml
           
           # Wait for job completion (5 min timeout)
