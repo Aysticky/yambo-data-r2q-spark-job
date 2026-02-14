@@ -1,122 +1,79 @@
-"""
-EventBridge Scheduler Terraform Module
+# EventBridge Scheduler Terraform Module
+#
+# This module creates Lambda + EventBridge for automatic Spark job scheduling
+#
+# ENTERPRISE SCHEDULING STRATEGY:
+# - DEV: Once daily at 2 AM UTC (testing and validation)
+# - PROD: Twice daily at 2 AM and 2 PM UTC (regular data updates)
+# - Uses Lambda to trigger Spark jobs via kubectl
+# - Fully audited with CloudWatch logs and metrics
 
-This module creates EventBridge rules to schedule Spark jobs.
-
-SCHEDULING STRATEGY:
-- 2 runs per day (every 12 hours) to reduce costs
-- Run at off-peak hours (e.g., 2 AM and 2 PM UTC)
-- Use cron expressions for precise timing
-
-COST OPTIMIZATION:
-Running 2x/day instead of continuous processing:
-- Reduces compute costs (shorter runtime)
-- Batches API calls (more efficient)
-- Still provides near-real-time data (12-hour latency max)
-
-Cost comparison:
-- Continuous: ~$45/month (1 hour/day runtime)
-- 2x/day: ~$30/month (30 min per run × 2 = 1 hour total)
-- Both process same data, but 2x/day uses resources more efficiently
-"""
-
-# EventBridge rule to trigger check job (runs before extract)
-resource "aws_cloudwatch_event_rule" "check_job_schedule" {
-  name                = "${var.project_name}-check-job-${var.environment}"
-  description         = "Schedule check job 2 times per day"
-  
-  # Run at 1:50 AM and 1:50 PM UTC (10 min before extract job)
-  schedule_expression = "cron(50 1,13 * * ? *)"
-  
-  tags = merge(
-    var.common_tags,
-    {
-      Name = "${var.project_name}-check-job-schedule-${var.environment}"
-      JobType = "check"
-    }
-  )
-}
-
-# EventBridge target: Trigger check SparkApplication
-resource "aws_cloudwatch_event_target" "check_job_target" {
-  rule      = aws_cloudwatch_event_rule.check_job_schedule.name
-  target_id = "check-job-trigger"
-  arn       = aws_lambda_function.spark_job_trigger.arn
-  
-  input = jsonencode({
-    jobType     = "check"
-    environment = var.environment
-    sparkApplication = "yambo-check-job"
-    namespace = "spark-jobs"
-  })
-}
-
-# EventBridge rule to trigger extract job (main data extraction)
-resource "aws_cloudwatch_event_rule" "extract_job_schedule" {
-  name                = "${var.project_name}-extract-job-${var.environment}"
-  description         = "Schedule extract job 2 times per day"
-  
-  # Run at 2:00 AM and 2:00 PM UTC
-  # This gives check job 10 minutes to complete first
-  schedule_expression = "cron(0 2,14 * * ? *)"
-  
-  tags = merge(
-    var.common_tags,
-    {
-      Name = "${var.project_name}-extract-job-schedule-${var.environment}"
-      JobType = "extract"
-    }
-  )
-}
-
-# EventBridge target: Trigger extract SparkApplication
-resource "aws_cloudwatch_event_target" "extract_job_target" {
-  rule      = aws_cloudwatch_event_rule.extract_job_schedule.name
-  target_id = "extract-job-trigger"
-  arn       = aws_lambda_function.spark_job_trigger.arn
-  
-  input = jsonencode({
-    jobType     = "extract"
-    environment = var.environment
-    sparkApplication = "yambo-extract-job"
-    namespace = "spark-jobs"
-  })
-}
-
-# Lambda function to trigger Spark jobs via K8s API
-# This Lambda applies SparkApplication CRDs to EKS cluster
-resource "aws_lambda_function" "spark_job_trigger" {
-  function_name = "${var.project_name}-spark-trigger-${var.environment}"
-  description   = "Trigger Spark jobs on EKS via Kubernetes API"
-  
-  # Lambda deployment package (created separately)
-  filename      = "${path.module}/lambda/spark_trigger.zip"
-  source_code_hash = filebase64sha256("${path.module}/lambda/spark_trigger.zip")
-  
-  handler = "lambda_function.lambda_handler"
-  runtime = "python3.11"
-  timeout = 60
-  
-  role = aws_iam_role.lambda_spark_trigger.arn
-  
-  environment {
-    variables = {
-      EKS_CLUSTER_NAME = var.eks_cluster_name
-      AWS_REGION       = var.aws_region
+terraform {
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0"
     }
   }
+}
+
+locals {
+  function_name = "${var.project_name}-spark-trigger-${var.environment}"
+  manifest_bucket = "${var.project_name}-${var.environment}-manifests"
   
-  tags = merge(
+  common_tags = merge(
     var.common_tags,
     {
-      Name = "${var.project_name}-spark-trigger-${var.environment}"
+      Component = "Scheduler"
+      ManagedBy = "Terraform"
     }
   )
 }
 
-# IAM role for Lambda
+# S3 bucket for storing Kubernetes manifests
+resource "aws_s3_bucket" "manifests" {
+  bucket = local.manifest_bucket
+  
+  tags = merge(
+    local.common_tags,
+    {
+      Name = "Spark Job Manifests"
+    }
+  )
+}
+
+resource "aws_s3_bucket_versioning" "manifests" {
+  bucket = aws_s3_bucket.manifests.id
+  
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
+resource "aws_s3_bucket_server_side_encryption_configuration" "manifests" {
+  bucket = aws_s3_bucket.manifests.id
+  
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
+}
+
+# Upload extract job manifest to S3
+resource "aws_s3_object" "extract_manifest" {
+  bucket = aws_s3_bucket.manifests.id
+  key    = "spark-jobs/yambo-extract-job.yaml"
+  content = templatefile("${path.module}/../../k8s/spark-application-extract.yaml", {})
+  
+  etag = md5(templatefile("${path.module}/../../k8s/spark-application-extract.yaml", {}))
+  
+  tags = local.common_tags
+}
+
+# Lambda execution role
 resource "aws_iam_role" "lambda_spark_trigger" {
-  name = "${var.project_name}-lambda-spark-trigger-${var.environment}"
+  name = "${local.function_name}-role"
   
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -131,7 +88,7 @@ resource "aws_iam_role" "lambda_spark_trigger" {
     ]
   })
   
-  tags = var.common_tags
+  tags = local.common_tags
 }
 
 # IAM policy: EKS access
@@ -154,21 +111,106 @@ resource "aws_iam_role_policy" "lambda_eks_access" {
   })
 }
 
+# IAM policy: S3 access to manifests bucket
+resource "aws_iam_role_policy" "lambda_s3_access" {
+  name = "s3-manifests-access"
+  role = aws_iam_role.lambda_spark_trigger.id
+  
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:GetObject",
+          "s3:ListBucket"
+        ]
+        Resource = [
+          aws_s3_bucket.manifests.arn,
+          "${aws_s3_bucket.manifests.arn}/*"
+        ]
+      }
+    ]
+  })
+}
+
 # IAM policy: CloudWatch Logs
 resource "aws_iam_role_policy_attachment" "lambda_logs" {
   role       = aws_iam_role.lambda_spark_trigger.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
-# Lambda permission for EventBridge to invoke
-resource "aws_lambda_permission" "allow_eventbridge_check" {
-  statement_id  = "AllowExecutionFromEventBridgeCheck"
-  action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.spark_job_trigger.function_name
-  principal     = "events.amazonaws.com"
-  source_arn    = aws_cloudwatch_event_rule.check_job_schedule.arn
+# CloudWatch log group for Lambda
+resource "aws_cloudwatch_log_group" "lambda_spark_trigger" {
+  name              = "/aws/lambda/${local.function_name}"
+  retention_in_days = var.log_retention_days
+  
+  tags = local.common_tags
 }
 
+# Lambda function
+resource "aws_lambda_function" "spark_job_trigger" {
+  function_name = local.function_name
+  role          = aws_iam_role.lambda_spark_trigger.arn
+  
+  filename         = "${path.module}/lambda_function.zip"
+  source_code_hash = fileexists("${path.module}/lambda_function.zip") ? filebase64sha256("${path.module}/lambda_function.zip") : null
+  
+  handler = "handler.lambda_handler"
+  runtime = "python3.9"
+  timeout = 300  # 5 minutes
+  memory_size = 512
+  
+  environment {
+    variables = {
+      EKS_CLUSTER_NAME = var.eks_cluster_name
+      AWS_REGION       = var.aws_region
+      NAMESPACE        = "spark-jobs"
+      JOB_NAME         = "yambo-extract-job"
+      ENVIRONMENT      = var.environment
+    }
+  }
+  
+  depends_on = [
+    aws_cloudwatch_log_group.lambda_spark_trigger,
+    aws_iam_role_policy.lambda_eks_access,
+    aws_iam_role_policy.lambda_s3_access,
+    aws_iam_role_policy_attachment.lambda_logs
+  ]
+  
+  tags = merge(
+    local.common_tags,
+    {
+      Name = "Spark Job Trigger"
+    }
+  )
+}
+
+# EventBridge rule: Extract job schedule
+resource "aws_cloudwatch_event_rule" "extract_job_schedule" {
+  name        = "${var.project_name}-extract-job-${var.environment}"
+  description = "Trigger Spark extract job on schedule"
+  
+  # Dev: Once daily at 2 AM UTC
+  # Prod: Twice daily at 2 AM and 2 PM UTC
+  schedule_expression = var.environment == "prod" ? "cron(0 2,14 * * ? *)" : "cron(0 2 * * ? *)"
+  
+  tags = local.common_tags
+}
+
+# EventBridge target: Lambda function
+resource "aws_cloudwatch_event_target" "lambda_target" {
+  rule      = aws_cloudwatch_event_rule.extract_job_schedule.name
+  target_id = "TriggerLambda"
+  arn       = aws_lambda_function.spark_job_trigger.arn
+  
+  input = jsonencode({
+    job_name = "yambo-extract-job"
+    source   = "eventbridge-schedule"
+  })
+}
+
+# Lambda permission for EventBridge
 resource "aws_lambda_permission" "allow_eventbridge_extract" {
   statement_id  = "AllowExecutionFromEventBridgeExtract"
   action        = "lambda:InvokeFunction"
@@ -177,67 +219,21 @@ resource "aws_lambda_permission" "allow_eventbridge_extract" {
   source_arn    = aws_cloudwatch_event_rule.extract_job_schedule.arn
 }
 
-# CloudWatch log group for Lambda
-resource "aws_cloudwatch_log_group" "lambda_spark_trigger" {
-  name              = "/aws/lambda/${aws_lambda_function.spark_job_trigger.function_name}"
-  retention_in_days = var.log_retention_days
+# CloudWatch Alarm: Lambda errors
+resource "aws_cloudwatch_metric_alarm" "lambda_errors" {
+  alarm_name          = "${local.function_name}-errors"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 1
+  metric_name         = "Errors"
+  namespace           = "AWS/Lambda"
+  period              = 300
+  statistic           = "Sum"
+  threshold           = 0
+  alarm_description   = "Alert when Lambda function has errors"
   
-  tags = var.common_tags
+  dimensions = {
+    FunctionName = aws_lambda_function.spark_job_trigger.function_name
+  }
+  
+  tags = local.common_tags
 }
-
-# PRODUCTION NOTES:
-#
-# SCHEDULING BEST PRACTICES:
-# 1. Run check job 10 minutes before extract (validation first)
-# 2. Use cron expressions for precise timing (not rate expressions)
-# 3. Schedule during off-peak hours (less API traffic)
-# 4. Add jitter to avoid thundering herd (if multiple pipelines)
-#
-# CRON EXPRESSION FORMAT:
-# cron(minute hour day month day-of-week year)
-# - minute: 0-59
-# - hour: 0-23 (UTC)
-# - day: 1-31
-# - month: 1-12 or JAN-DEC
-# - day-of-week: 1-7 or SUN-SAT
-# - year: optional
-#
-# Examples:
-# - Every 12 hours: cron(0 0,12 * * ? *)
-# - Every 6 hours: cron(0 0,6,12,18 * * ? *)
-# - Weekdays only: cron(0 2,14 ? * MON-FRI *)
-# - Business hours: cron(0 9-17 ? * MON-FRI *)
-#
-# WHY 2 RUNS PER DAY:
-# - Balance between freshness and cost
-# - 12-hour data latency acceptable for most analytics
-# - Reduces API calls (batch processing)
-# - Lower compute costs (no idle time)
-#
-# ALTERNATIVE: Use EventBridge Scheduler (newer service)
-# EventBridge Scheduler offers:
-# - More flexible scheduling (one-time, recurring)
-# - Timezone support (no need to convert to UTC)
-# - Better error handling
-# - Direct target support (no Lambda needed)
-#
-# Migration to EventBridge Scheduler:
-# resource "aws_scheduler_schedule" "extract_job" {
-#   name = "yambo-extract-job-${var.environment}"
-#   
-#   schedule_expression = "cron(0 2,14 * * ? *)"
-#   schedule_expression_timezone = "Europe/Berlin"
-#   
-#   flexible_time_window {
-#     mode = "OFF"
-#   }
-#   
-#   target {
-#     arn      = var.eks_cluster_arn
-#     role_arn = aws_iam_role.scheduler_role.arn
-#     
-#     input = jsonencode({
-#       sparkApplication = "yambo-extract-job"
-#     })
-#   }
-# }

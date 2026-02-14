@@ -107,6 +107,18 @@ module "eks" {
   common_tags     = local.common_tags
 }
 
+# Automated Spark job scheduler
+module "scheduler" {
+  source = "../../modules/scheduler"
+  
+  project_name     = local.project_name
+  environment      = local.environment
+  aws_region       = var.aws_region
+  eks_cluster_name = module.eks.cluster_name
+  eks_cluster_arn  = module.eks.cluster_arn
+  common_tags      = local.common_tags
+}
+
 # Outputs
 output "data_lake_bucket" {
   description = "Data lake S3 bucket name"
@@ -146,4 +158,19 @@ output "eks_cluster_name" {
 output "spark_job_irsa_role_arn" {
   description = "IAM role ARN for Spark jobs (IRSA)"
   value       = module.eks.spark_job_irsa_role_arn
+}
+
+output "scheduler_lambda_function" {
+  description = "Lambda function name for Spark job trigger"
+  value       = module.scheduler.lambda_trigger_function_name
+}
+
+output "scheduler_manifest_bucket" {
+  description = "S3 bucket for Kubernetes manifests"
+  value       = module.scheduler.manifest_bucket_name
+}
+
+output "scheduler_cron_rule" {
+  description = "EventBridge schedule rule ARN"
+  value       = module.scheduler.extract_job_schedule_arn
 }
