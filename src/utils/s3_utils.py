@@ -52,22 +52,22 @@ def construct_s3_path(
 ) -> str:
     """
     Construct S3 path with partitioning scheme
-    
+
     PARTITIONING STRATEGY:
     - By date: Enables time-based queries and pruning
     - By hour: For high-volume data (>1GB/day)
     - By run_id: For idempotency and atomic writes
-    
+
     Args:
         bucket: S3 bucket name
         prefix: Base prefix (e.g., "raw/transactions")
         date: Partition date
         partition_by_hour: Add hour partition
         run_id: Unique run identifier
-    
+
     Returns:
         Full S3 path like: s3://bucket/raw/transactions/dt=2026-02-12/run_id=abc123/
-    
+
     USAGE:
         path = construct_s3_path(
             bucket="yambo-prod-data-lake",
@@ -78,47 +78,47 @@ def construct_s3_path(
         # Output: s3a://yambo-prod-data-lake/raw/stripe_charges/dt=2026-02-12/run_id=run-1707696000/
     """
     path_parts = [f"s3a://{bucket}", prefix]
-    
+
     # Date partition (always include)
     path_parts.append(f"dt={date.strftime('%Y-%m-%d')}")
-    
+
     # Hour partition (optional, for high-volume data)
     if partition_by_hour:
         path_parts.append(f"hour={date.strftime('%H')}")
-    
+
     # Run ID partition (for atomic writes)
     if run_id:
         path_parts.append(f"run_id={run_id}")
-    
+
     return "/".join(path_parts) + "/"
 
 
 def validate_s3_access(bucket: str, prefix: str) -> bool:
     """
     Validate S3 bucket access before starting job
-    
+
     FAIL-FAST PRINCIPLE:
     Check permissions at job start, not 2 hours into processing.
     This saves time and executor costs.
-    
+
     Args:
         bucket: S3 bucket name
         prefix: Prefix to test
-    
+
     Returns:
         True if accessible, False otherwise
-    
+
     COMMON ERRORS:
     - 403 Forbidden: IAM role lacks s3:PutObject permission
     - 404 Not Found: Bucket doesn't exist
     - 301 Moved: Wrong region (bucket in us-east-1 but client in eu-central-1)
     """
     s3_client = boto3.client("s3")
-    
+
     try:
         # Try to list objects (validates read permission)
         s3_client.list_objects_v2(Bucket=bucket, Prefix=prefix, MaxKeys=1)
-        
+
         # Try to put a test object (validates write permission)
         test_key = f"{prefix}/_validate_access_{int(datetime.utcnow().timestamp())}.txt"
         s3_client.put_object(
@@ -126,13 +126,13 @@ def validate_s3_access(bucket: str, prefix: str) -> bool:
             Key=test_key,
             Body=b"test",
         )
-        
+
         # Clean up test object
         s3_client.delete_object(Bucket=bucket, Key=test_key)
-        
+
         logger.info(f"S3 access validated: s3://{bucket}/{prefix}")
         return True
-        
+
     except ClientError as e:
         error_code = e.response["Error"]["Code"]
         logger.error(
@@ -145,23 +145,23 @@ def validate_s3_access(bucket: str, prefix: str) -> bool:
 def get_latest_partition(bucket: str, prefix: str) -> Optional[str]:
     """
     Get the latest date partition from S3
-    
+
     Useful for incremental loads: "What's the last date we processed?"
-    
+
     Args:
         bucket: S3 bucket name
         prefix: Prefix to search
-    
+
     Returns:
         Latest partition date as string (YYYY-MM-DD) or None
-    
+
     USAGE:
         last_date = get_latest_partition("yambo-prod-data-lake", "raw/transactions")
         if last_date:
             start_date = datetime.strptime(last_date, "%Y-%m-%d") + timedelta(days=1)
     """
     s3_client = boto3.client("s3")
-    
+
     try:
         # List objects with dt= prefix
         response = s3_client.list_objects_v2(
@@ -169,10 +169,10 @@ def get_latest_partition(bucket: str, prefix: str) -> Optional[str]:
             Prefix=f"{prefix}/dt=",
             Delimiter="/",
         )
-        
+
         if "CommonPrefixes" not in response:
             return None
-        
+
         # Extract dates from prefixes
         dates = []
         for prefix_obj in response["CommonPrefixes"]:
@@ -181,9 +181,9 @@ def get_latest_partition(bucket: str, prefix: str) -> Optional[str]:
             if "dt=" in prefix_path:
                 date_str = prefix_path.split("dt=")[1].split("/")[0]
                 dates.append(date_str)
-        
+
         return max(dates) if dates else None
-        
+
     except ClientError as e:
         logger.error(f"Failed to get latest partition: {e}")
         return None
@@ -192,32 +192,32 @@ def get_latest_partition(bucket: str, prefix: str) -> Optional[str]:
 def count_objects(bucket: str, prefix: str) -> int:
     """
     Count objects in S3 prefix
-    
+
     Useful for validation: "Did we write the expected number of files?"
-    
+
     WARNING: For prefixes with >1000 objects, this may take time.
     Consider using S3 Inventory for large prefixes.
     """
     s3_client = boto3.client("s3")
     count = 0
     continuation_token = None
-    
+
     try:
         while True:
             kwargs = {"Bucket": bucket, "Prefix": prefix}
             if continuation_token:
                 kwargs["ContinuationToken"] = continuation_token
-            
+
             response = s3_client.list_objects_v2(**kwargs)
             count += response.get("KeyCount", 0)
-            
+
             if not response.get("IsTruncated"):
                 break
-            
+
             continuation_token = response.get("NextContinuationToken")
-        
+
         return count
-        
+
     except ClientError as e:
         logger.error(f"Failed to count objects: {e}")
         return 0

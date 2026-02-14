@@ -115,7 +115,7 @@ logger = logging.getLogger(__name__)
 class CheckpointManager:
     """
     Manages extraction checkpoints in DynamoDB
-    
+
     Table schema:
     - Partition key: checkpoint_key (string) - e.g., "stripe_charges_prod"
     - Attributes:
@@ -125,29 +125,29 @@ class CheckpointManager:
       records_extracted_last_run (number) - Last run count
       - updated_at (string) - Checkpoint update time
       - updated_by (string) - Job ID that updated checkpoint
-    
+
     USAGE:
         manager = CheckpointManager(
             table_name="yambo-prod-checkpoints",
             checkpoint_key="stripe_charges"
         )
-        
+
         # Get last checkpoint
         last_timestamp = manager.get_last_timestamp()
-        
+
         # Extract new data
         records = extract_data(created_after=last_timestamp)
-        
+
         # Write data
         write_to_s3(records)
-        
+
         # Update checkpoint
         manager.update_checkpoint(
             timestamp=datetime.utcnow(),
             records_count=len(records)
         )
     """
-    
+
     def __init__(
         self,
         table_name: str,
@@ -156,7 +156,7 @@ class CheckpointManager:
     ):
         """
         Initialize checkpoint manager
-        
+
         Args:
             table_name: DynamoDB table name
             checkpoint_key: Unique checkpoint identifier (e.g., "stripe_charges_prod")
@@ -165,46 +165,44 @@ class CheckpointManager:
         self.table_name = table_name
         self.checkpoint_key = checkpoint_key
         self.time_buffer = timedelta(minutes=time_buffer_minutes)
-        
+
         self.dynamodb = boto3.resource("dynamodb")
         self.table = self.dynamodb.Table(table_name)
-    
+
     def get_last_timestamp(
         self,
         default: Optional[datetime] = None,
     ) -> Optional[datetime]:
         """
         Get last extracted timestamp from checkpoint
-        
+
         Args:
             default: Default timestamp if no checkpoint exists
-        
+
         Returns:
             Last extracted timestamp (with buffer subtracted) or default
-        
+
         BUFFER EXPLANATION:
         If checkpoint says "2026-02-12T10:00:00Z", we return "2026-02-12T09:55:00Z".
         This ensures we don't miss records created between 09:55 and 10:00 due to:
         - Clock skew between our system and API
         - Records with timestamps slightly before they appeared in API
-        
+
         Trade-off: Some records might be extracted twice, but idempotent writes handle this.
         """
         try:
-            response = self.table.get_item(
-                Key={"checkpoint_key": self.checkpoint_key}
-            )
-            
+            response = self.table.get_item(Key={"checkpoint_key": self.checkpoint_key})
+
             if "Item" in response:
                 item = response["Item"]
                 timestamp_str = item.get("last_extracted_timestamp")
-                
+
                 if timestamp_str:
                     timestamp = datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
-                    
+
                     # Subtract buffer for safety
                     timestamp_with_buffer = timestamp - self.time_buffer
-                    
+
                     logger.info(
                         f"Found checkpoint: {timestamp_str} (using {timestamp_with_buffer.isoformat()}Z with buffer)",
                         extra={
@@ -213,19 +211,19 @@ class CheckpointManager:
                             "buffer_minutes": self.time_buffer.total_seconds() / 60,
                         },
                     )
-                    
+
                     return timestamp_with_buffer
-            
+
             # No checkpoint found
             logger.info(
                 f"No checkpoint found for {self.checkpoint_key}, using default",
                 extra={"checkpoint_key": self.checkpoint_key, "default": default},
             )
             return default
-            
+
         except ClientError as e:
             error_code = e.response["Error"]["Code"]
-            
+
             if error_code == "ResourceNotFoundException":
                 raise ValueError(
                     f"DynamoDB table not found: {self.table_name}. "
@@ -237,7 +235,7 @@ class CheckpointManager:
                     extra={"checkpoint_key": self.checkpoint_key},
                 )
                 raise
-    
+
     def update_checkpoint(
         self,
         timestamp: datetime,
@@ -248,34 +246,32 @@ class CheckpointManager:
     ) -> None:
         """
         Update checkpoint with new extraction state
-        
+
         Args:
             timestamp: New last extracted timestamp (should be max timestamp from extracted data)
             records_count: Number of records extracted in this run
             cursor: API cursor (optional, for pagination resumption)
             job_id: Job identifier (for audit trail)
             extra_metadata: Additional metadata to store
-        
+
         ATOMICITY NOTE:
         This update is atomic in DynamoDB. If multiple processes try to update
         simultaneously, last write wins. This is acceptable for checkpoints
         (we prefer latest timestamp).
-        
+
         For stronger consistency, use conditional updates:
         - Only update if our timestamp > current timestamp
         - Prevents older job from overwriting newer checkpoint
         """
         timestamp_str = timestamp.strftime("%Y-%m-%dT%H:%M:%SZ")
-        
+
         try:
             # Get current checkpoint for comparison
-            current_response = self.table.get_item(
-                Key={"checkpoint_key": self.checkpoint_key}
-            )
-            
+            current_response = self.table.get_item(Key={"checkpoint_key": self.checkpoint_key})
+
             current_item = current_response.get("Item", {})
             total_records = current_item.get("records_extracted", 0) + records_count
-            
+
             # Prepare update item
             item = {
                 "checkpoint_key": self.checkpoint_key,
@@ -284,19 +280,19 @@ class CheckpointManager:
                 "records_extracted_last_run": records_count,
                 "updated_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
             }
-            
+
             if cursor:
                 item["last_extracted_cursor"] = cursor
-            
+
             if job_id:
                 item["updated_by"] = job_id
-            
+
             if extra_metadata:
                 item["metadata"] = json.dumps(extra_metadata)
-            
+
             # Write to DynamoDB
             self.table.put_item(Item=item)
-            
+
             logger.info(
                 f"Updated checkpoint to {timestamp_str}",
                 extra={
@@ -306,7 +302,7 @@ class CheckpointManager:
                     "total_records": total_records,
                 },
             )
-            
+
         except ClientError as e:
             logger.error(
                 f"Failed to update checkpoint: {e}",
@@ -316,56 +312,52 @@ class CheckpointManager:
                 },
             )
             raise
-    
+
     def get_checkpoint_metadata(self) -> Optional[Dict[str, Any]]:
         """
         Get full checkpoint metadata
-        
+
         Returns:
             Dict with all checkpoint fields or None if not found
-        
+
         Useful for debugging and monitoring:
         - When was checkpoint last updated?
         - How many records extracted total?
         - What job updated it?
         """
         try:
-            response = self.table.get_item(
-                Key={"checkpoint_key": self.checkpoint_key}
-            )
-            
+            response = self.table.get_item(Key={"checkpoint_key": self.checkpoint_key})
+
             if "Item" in response:
                 return dict(response["Item"])
-            
+
             return None
-            
+
         except ClientError as e:
             logger.error(f"Failed to get checkpoint metadata: {e}")
             return None
-    
+
     def reset_checkpoint(self, reason: str) -> None:
         """
         Reset checkpoint (delete from DynamoDB)
-        
+
         WARNING: This will cause full historical re-extraction on next run.
         Only use for:
         - Backfill scenarios
         - Data quality issues requiring re-extraction
         - Testing
-        
+
         Args:
             reason: Reason for reset (logged for audit)
         """
         try:
-            self.table.delete_item(
-                Key={"checkpoint_key": self.checkpoint_key}
-            )
-            
+            self.table.delete_item(Key={"checkpoint_key": self.checkpoint_key})
+
             logger.warning(
                 f"Reset checkpoint for {self.checkpoint_key}",
                 extra={"checkpoint_key": self.checkpoint_key, "reason": reason},
             )
-            
+
         except ClientError as e:
             logger.error(f"Failed to reset checkpoint: {e}")
             raise

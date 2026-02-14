@@ -132,39 +132,41 @@ logger = logging.getLogger(__name__)
 
 class RateLimitError(Exception):
     """Raised when API rate limit is exceeded"""
+
     pass
 
 
 class APIError(Exception):
     """Raised for API errors"""
+
     pass
 
 
 class TokenBucketRateLimiter:
     """
     Token bucket rate limiter for API requests
-    
+
     This implements the token bucket algorithm:
     - Bucket starts with N tokens
     - Each request consumes 1 token
     - Tokens refill at rate R per second
     - If bucket empty, request waits until token available
-    
+
     USAGE:
         limiter = TokenBucketRateLimiter(rate=100)  # 100 req/sec
         limiter.acquire()  # Blocks if rate limit reached
         make_api_request()
-    
+
     WHY NOT USE time.sleep()?
     Simple sleep(1/rate) doesn't handle bursts well.
     Token bucket allows bursts up to bucket capacity,
     then enforces average rate.
     """
-    
+
     def __init__(self, rate: float, capacity: Optional[int] = None):
         """
         Initialize rate limiter
-        
+
         Args:
             rate: Requests per second
             capacity: Max burst size (default = rate)
@@ -173,11 +175,11 @@ class TokenBucketRateLimiter:
         self.capacity = capacity or int(rate)
         self.tokens = float(self.capacity)
         self.last_update = time.time()
-    
+
     def acquire(self, tokens: int = 1) -> None:
         """
         Acquire tokens (blocks if insufficient tokens)
-        
+
         Args:
             tokens: Number of tokens to acquire (usually 1)
         """
@@ -185,25 +187,22 @@ class TokenBucketRateLimiter:
             # Refill tokens based on time elapsed
             now = time.time()
             elapsed = now - self.last_update
-            self.tokens = min(
-                self.capacity,
-                self.tokens + elapsed * self.rate
-            )
+            self.tokens = min(self.capacity, self.tokens + elapsed * self.rate)
             self.last_update = now
-            
+
             if tokens > self.tokens:
                 # Calculate wait time for required tokens
                 wait_time = (tokens - self.tokens) / self.rate
                 logger.debug(f"Rate limit: waiting {wait_time:.2f}s")
                 time.sleep(wait_time)
-        
+
         self.tokens -= tokens
 
 
 class RESTAPIClient:
     """
     Enterprise-grade REST API client with pagination and rate limiting
-    
+
     Features:
     - Automatic authentication (API key or OAuth2)
     - Cursor-based pagination
@@ -211,18 +210,18 @@ class RESTAPIClient:
     - Exponential backoff retries
     - Request/response logging
     - Connection pooling
-    
+
     USAGE:
         client = RESTAPIClient(
             base_url="https://api.stripe.com/v1",
             auth_manager=StripeAPIKeyManager("yambo/prod/stripe-api"),
             rate_limit=100  # 100 req/sec
         )
-        
+
         for page in client.paginate_endpoint("/charges", params={"limit": 100}):
             process_page(page)
     """
-    
+
     def __init__(
         self,
         base_url: str,
@@ -233,7 +232,7 @@ class RESTAPIClient:
     ):
         """
         Initialize API client
-        
+
         Args:
             base_url: API base URL (e.g., https://api.stripe.com/v1)
             auth_manager: Authentication manager
@@ -245,62 +244,62 @@ class RESTAPIClient:
         self.auth_manager = auth_manager
         self.timeout = timeout
         self.max_retries = max_retries
-        
+
         # Rate limiter
         self.rate_limiter = TokenBucketRateLimiter(rate=rate_limit)
-        
+
         # Prepare session with connection pooling and retries
         self.session = self._create_session()
-        
+
         # Metrics
         self.total_requests = 0
         self.total_rate_limit_hits = 0
         self.total_retries = 0
-    
+
     def _create_session(self) -> requests.Session:
         """
         Create requests session with connection pooling and retries
-        
+
         CONNECTION POOLING:
         - Reuses TCP connections across requests
         - Reduces latency (no TCP handshake overhead)
         - Default pool size: 10 connections
-        
+
         RETRY STRATEGY:
         - Retry on connection errors (network issues)
         - Retry on 500, 502, 503, 504 (server errors)
         - Don't retry on 4xx (client errors) except 429 (rate limit)
         """
         session = requests.Session()
-        
+
         retry_strategy = Retry(
             total=self.max_retries,
             backoff_factor=1,  # Exponential: 1s, 2s, 4s, 8s, 16s
             status_forcelist=[429, 500, 502, 503, 504],
             allowed_methods=["GET", "POST"],  # Only retry idempotent methods
         )
-        
+
         adapter = HTTPAdapter(
             max_retries=retry_strategy,
             pool_connections=10,
             pool_maxsize=10,
         )
-        
+
         session.mount("http://", adapter)
         session.mount("https://", adapter)
-        
+
         return session
-    
+
     def _get_headers(self) -> Dict[str, str]:
         """Get request headers with authentication"""
         api_key = self.auth_manager.get_api_key()
-        
+
         return {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
             "User-Agent": "Yambo-DataPipeline/0.1.0",
         }
-    
+
     @retry(
         stop=stop_after_attempt(5),
         wait=wait_exponential(multiplier=1, min=4, max=60),
@@ -315,25 +314,25 @@ class RESTAPIClient:
     ) -> Dict[str, Any]:
         """
         Make HTTP request with rate limiting and retries
-        
+
         Args:
             method: HTTP method (GET, POST, etc.)
             endpoint: API endpoint (e.g., /charges)
             params: Query parameters
             data: Request body (for POST)
-        
+
         Returns:
             Response JSON as dict
-        
+
         Raises:
             RateLimitError: If rate limit exceeded after retries
             APIError: For other API errors
         """
         # Apply rate limiting
         self.rate_limiter.acquire()
-        
+
         url = f"{self.base_url}{endpoint}"
-        
+
         with log_execution_time(logger, f"{method} {endpoint}", endpoint=endpoint):
             try:
                 response = self.session.request(
@@ -344,14 +343,14 @@ class RESTAPIClient:
                     json=data,
                     timeout=self.timeout,
                 )
-                
+
                 self.total_requests += 1
-                
+
                 # Handle rate limiting
                 if response.status_code == 429:
                     self.total_rate_limit_hits += 1
                     retry_after = int(response.headers.get("Retry-After", 10))
-                    
+
                     logger.warning(
                         f"Rate limit hit, retrying after {retry_after}s",
                         extra={
@@ -360,18 +359,18 @@ class RESTAPIClient:
                             "total_rate_limit_hits": self.total_rate_limit_hits,
                         },
                     )
-                    
+
                     time.sleep(retry_after)
                     raise RateLimitError("Rate limit exceeded")
-                
+
                 # Handle other errors
                 response.raise_for_status()
-                
+
                 return response.json()
-                
+
             except requests.exceptions.HTTPError as e:
                 status_code = e.response.status_code
-                
+
                 if 400 <= status_code < 500:
                     # Client errors (don't retry)
                     error_detail = e.response.text
@@ -388,7 +387,7 @@ class RESTAPIClient:
                     )
                     self.total_retries += 1
                     raise
-            
+
             except requests.exceptions.Timeout:
                 logger.warning(
                     f"Request timeout after {self.timeout}s, retrying...",
@@ -396,7 +395,7 @@ class RESTAPIClient:
                 )
                 self.total_retries += 1
                 raise
-            
+
             except requests.exceptions.RequestException as e:
                 logger.warning(
                     f"Request failed: {e}, retrying...",
@@ -404,7 +403,7 @@ class RESTAPIClient:
                 )
                 self.total_retries += 1
                 raise
-    
+
     def paginate_endpoint(
         self,
         endpoint: str,
@@ -415,34 +414,34 @@ class RESTAPIClient:
     ) -> Iterator[List[Dict[str, Any]]]:
         """
         Paginate through API endpoint using cursor-based pagination
-        
+
         This implements the standard cursor pagination pattern:
         1. Make first request with no cursor
         2. Get data and next cursor from response
         3. Make next request with cursor
         4. Repeat until has_more = false
-        
+
         Args:
             endpoint: API endpoint (e.g., /charges)
             params: Base query parameters
             cursor_field: Field name for cursor param (Stripe uses "starting_after")
             data_field: Field name for data array in response
             has_more_field: Field name for pagination flag
-        
+
         Yields:
             List of records for each page
-        
+
         USAGE:
             for page in client.paginate_endpoint("/charges", params={"limit": 100}):
                 for record in page:
                     process_record(record)
-        
+
         PAGINATION BEST PRACTICES:
         1. Page size: 100 is a good default (balance latency vs throughput)
         2. Always include stable filter (e.g., created[lte]=end_timestamp)
         3. Store cursor in checkpoint for resumability
         4. Monitor "has_more=false" to detect end of data
-        
+
         PERFORMANCE CONSIDERATIONS:
         - Each page = 1 API request
         - 1M records / 100 per page = 10,000 requests
@@ -455,27 +454,27 @@ class RESTAPIClient:
         cursor = None
         page_count = 0
         total_records = 0
-        
+
         logger.info(
             f"Starting pagination for {endpoint}",
             extra={"params": params},
         )
-        
+
         while has_more:
             # Add cursor to params if available
             if cursor:
                 params[cursor_field] = cursor
-            
+
             # Fetch page
             response = self._make_request("GET", endpoint, params=params)
-            
+
             # Extract data
             records = response.get(data_field, [])
             has_more = response.get(has_more_field, False)
-            
+
             page_count += 1
             total_records += len(records)
-            
+
             logger.info(
                 f"Fetched page {page_count}",
                 extra={
@@ -485,22 +484,20 @@ class RESTAPIClient:
                     "endpoint": endpoint,
                 },
             )
-            
+
             # Yield page
             if records:
                 yield records
-            
+
             # Get cursor for next page
             if has_more and records:
                 # Cursor is usually the ID of the last record
                 cursor = records[-1].get("id")
-                
+
                 if not cursor:
-                    logger.warning(
-                        "has_more=true but no cursor found, stopping pagination"
-                    )
+                    logger.warning("has_more=true but no cursor found, stopping pagination")
                     break
-        
+
         logger.info(
             f"Pagination complete for {endpoint}",
             extra={
@@ -509,14 +506,14 @@ class RESTAPIClient:
                 "endpoint": endpoint,
             },
         )
-    
+
     def get_metrics(self) -> Dict[str, int]:
         """
         Get client metrics for monitoring
-        
+
         Returns:
             Dict with metrics: total_requests, rate_limit_hits, retries
-        
+
         MONITORING TIP:
         Log these metrics at job end to track API health:
         - High rate_limit_hits → Need to reduce request rate
@@ -527,9 +524,7 @@ class RESTAPIClient:
             "total_rate_limit_hits": self.total_rate_limit_hits,
             "total_retries": self.total_retries,
             "rate_limit_hit_rate": (
-                self.total_rate_limit_hits / self.total_requests
-                if self.total_requests > 0
-                else 0
+                self.total_rate_limit_hits / self.total_requests if self.total_requests > 0 else 0
             ),
         }
 

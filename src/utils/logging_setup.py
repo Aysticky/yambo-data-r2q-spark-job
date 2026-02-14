@@ -32,11 +32,11 @@ import time
 class StructuredFormatter(logging.Formatter):
     """
     JSON formatter for structured logging
-    
+
     CloudWatch Insights can parse JSON logs automatically,
     making it easy to query and create dashboards.
     """
-    
+
     def format(self, record: logging.LogRecord) -> str:
         """Format log record as JSON"""
         log_data: Dict[str, Any] = {
@@ -48,11 +48,11 @@ class StructuredFormatter(logging.Formatter):
             "function": record.funcName,
             "line": record.lineno,
         }
-        
+
         # Add exception info if present
         if record.exc_info:
             log_data["exception"] = self.formatException(record.exc_info)
-        
+
         # Add custom fields from extra parameter
         if hasattr(record, "job_id"):
             log_data["job_id"] = record.job_id
@@ -64,7 +64,7 @@ class StructuredFormatter(logging.Formatter):
             log_data["api_endpoint"] = record.api_endpoint
         if hasattr(record, "duration_ms"):
             log_data["duration_ms"] = record.duration_ms
-        
+
         return json.dumps(log_data)
 
 
@@ -75,44 +75,42 @@ def setup_logging(
 ) -> logging.Logger:
     """
     Configure logging for Spark job
-    
+
     Args:
         log_level: Logging level (DEBUG, INFO, WARNING, ERROR)
         structured: Use JSON structured logging (recommended for production)
         job_id: Unique job identifier to include in all logs
-    
+
     Returns:
         Configured logger instance
-    
+
     USAGE:
         logger = setup_logging(log_level="INFO", job_id="extract-2026-02-12")
         logger.info("Starting data extraction", extra={"records_count": 1000})
     """
     logger = logging.getLogger("yambo")
     logger.setLevel(getattr(logging, log_level.upper()))
-    
+
     # Remove existing handlers
     logger.handlers = []
-    
+
     # Console handler
     handler = logging.StreamHandler(sys.stdout)
     handler.setLevel(getattr(logging, log_level.upper()))
-    
+
     # Use appropriate formatter
     if structured:
         formatter = StructuredFormatter()
     else:
-        formatter = logging.Formatter(
-            "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-        )
-    
+        formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+
     handler.setFormatter(formatter)
     logger.addHandler(handler)
-    
+
     # Add default context
     if job_id:
         logger = logging.LoggerAdapter(logger, {"job_id": job_id})
-    
+
     return logger
 
 
@@ -120,11 +118,11 @@ def setup_logging(
 def log_execution_time(logger: logging.Logger, operation: str, **extra_fields):
     """
     Context manager to log operation execution time
-    
+
     USAGE:
         with log_execution_time(logger, "API call to /charges", endpoint="/charges"):
             response = fetch_data()
-    
+
     This is critical for identifying performance bottlenecks:
     - If "API call" takes >5s, the API might be slow
     - If "Spark write" takes >10min, you might have data skew
@@ -132,7 +130,7 @@ def log_execution_time(logger: logging.Logger, operation: str, **extra_fields):
     """
     start_time = time.time()
     logger.info(f"Starting: {operation}", extra=extra_fields)
-    
+
     try:
         yield
     except Exception as e:
@@ -154,11 +152,11 @@ def log_execution_time(logger: logging.Logger, operation: str, **extra_fields):
 def mask_sensitive_data(data: str, visible_chars: int = 4) -> str:
     """
     Mask sensitive data for logging
-    
+
     USAGE:
         logger.info(f"Using API key: {mask_sensitive_data(api_key)}")
         # Output: "Using API key: sk_l****"
-    
+
     NEVER log full API keys, tokens, or passwords. This function helps.
     """
     if not data or len(data) <= visible_chars:

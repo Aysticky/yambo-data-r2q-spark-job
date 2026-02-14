@@ -35,45 +35,38 @@ def parse_args():
     """Parse command-line arguments"""
     parser = argparse.ArgumentParser(
         description="Yambo Spark Data Pipeline",
-        formatter_class=argparse.RawDescriptionHelpFormatter
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    
+
     parser.add_argument(
         "--job-type",
         type=str,
         required=True,
         choices=["check", "extract"],
-        help="Type of job to run"
+        help="Type of job to run",
     )
-    
+
     parser.add_argument(
         "--environment",
         type=str,
         default="dev",
         choices=["dev", "prod", "local"],
-        help="Environment to run in (default: dev)"
+        help="Environment to run in (default: dev)",
     )
-    
+
     parser.add_argument(
-        "--date",
-        type=str,
-        default=None,
-        help="Date to process (YYYY-MM-DD). Defaults to today."
+        "--date", type=str, default=None, help="Date to process (YYYY-MM-DD). Defaults to today."
     )
-    
-    parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Run in dry-run mode (no writes)"
-    )
-    
+
+    parser.add_argument("--dry-run", action="store_true", help="Run in dry-run mode (no writes)")
+
     return parser.parse_args()
 
 
 def main():
     """Main entry point"""
     args = parse_args()
-    
+
     print("=" * 80)
     print("Yambo Spark Data Pipeline")
     print("=" * 80)
@@ -81,15 +74,16 @@ def main():
     print(f"Environment: {args.environment}")
     print(f"Timestamp: {datetime.utcnow().isoformat()}Z")
     print("=" * 80)
-    
+
     # Set environment variable for config
     import os
+
     os.environ["ENVIRONMENT"] = args.environment
-    
+
     if args.dry_run:
         os.environ["DRY_RUN"] = "true"
         print("DRY RUN MODE: No writes will be performed")
-    
+
     # Route to appropriate job
     if args.job_type == "check":
         sys.path.insert(0, "/opt/spark/work-dir")  # For K8s deployment

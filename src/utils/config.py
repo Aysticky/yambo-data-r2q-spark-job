@@ -19,6 +19,7 @@ from enum import Enum
 
 class Environment(str, Enum):
     """Deployment environment enum"""
+
     DEV = "dev"
     PROD = "prod"
     LOCAL = "local"
@@ -27,13 +28,14 @@ class Environment(str, Enum):
 @dataclass
 class SparkConfig:
     """Spark-specific configuration"""
+
     app_name: str
     executor_memory: str
     executor_cores: int
     num_executors: int
     driver_memory: str
     shuffle_partitions: int
-    
+
     @classmethod
     def from_env(cls) -> "SparkConfig":
         """Load Spark config from environment"""
@@ -50,12 +52,13 @@ class SparkConfig:
 @dataclass
 class AWSConfig:
     """AWS infrastructure configuration"""
+
     region: str
     s3_bucket: str
     s3_prefix: str
     dynamodb_checkpoint_table: str
     secrets_manager_secret_name: str
-    
+
     @classmethod
     def from_env(cls) -> "AWSConfig":
         """Load AWS config from environment"""
@@ -65,12 +68,10 @@ class AWSConfig:
             s3_bucket=os.getenv("S3_DATA_BUCKET", f"yambo-{environment}-data-lake"),
             s3_prefix=os.getenv("S3_DATA_PREFIX", "raw/transactions"),
             dynamodb_checkpoint_table=os.getenv(
-                "DYNAMODB_CHECKPOINT_TABLE", 
-                f"yambo-{environment}-checkpoints"
+                "DYNAMODB_CHECKPOINT_TABLE", f"yambo-{environment}-checkpoints"
             ),
             secrets_manager_secret_name=os.getenv(
-                "SECRETS_MANAGER_SECRET_NAME",
-                f"yambo/{environment}/stripe-api"
+                "SECRETS_MANAGER_SECRET_NAME", f"yambo/{environment}/stripe-api"
             ),
         )
 
@@ -78,12 +79,13 @@ class AWSConfig:
 @dataclass
 class APIConfig:
     """REST API configuration"""
+
     base_url: str
     page_size: int
     max_retries: int
     timeout_seconds: int
     rate_limit_per_second: int
-    
+
     @classmethod
     def from_env(cls) -> "APIConfig":
         """Load API config from environment"""
@@ -99,28 +101,29 @@ class APIConfig:
 @dataclass
 class JobConfig:
     """Complete job configuration"""
+
     environment: Environment
     spark: SparkConfig
     aws: AWSConfig
     api: APIConfig
-    
+
     @classmethod
     def from_env(cls) -> "JobConfig":
         """Load complete configuration from environment"""
         env_str = os.getenv("ENVIRONMENT", "dev")
         environment = Environment(env_str)
-        
+
         return cls(
             environment=environment,
             spark=SparkConfig.from_env(),
             aws=AWSConfig.from_env(),
             api=APIConfig.from_env(),
         )
-    
+
     def is_production(self) -> bool:
         """Check if running in production"""
         return self.environment == Environment.PROD
-    
+
     def is_local(self) -> bool:
         """Check if running locally"""
         return self.environment == Environment.LOCAL
@@ -129,7 +132,7 @@ class JobConfig:
 def get_config() -> JobConfig:
     """
     Get application configuration
-    
+
     This is the main entry point for configuration access.
     Call this function once at the start of your job.
     """
