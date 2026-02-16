@@ -110,6 +110,13 @@ resource "aws_iam_role_policy" "lambda_eks_access" {
           "eks:ListClusters"
         ]
         Resource = var.eks_cluster_arn
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "sts:GetCallerIdentity"
+        ]
+        Resource = "*"
       }
     ]
   })
