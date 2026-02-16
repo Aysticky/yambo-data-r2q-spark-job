@@ -200,9 +200,8 @@ resource "kubectl_manifest" "ec2_node_class" {
       tags = merge(
         local.common_tags,
         {
-          Name                                        = "${var.project_name}-karpenter-node-${var.environment}"
-          "karpenter.sh/discovery"                    = var.cluster_name
-          "kubernetes.io/cluster/${var.cluster_name}" = "owned"
+          Name                     = "${var.project_name}-karpenter-node-${var.environment}"
+          "karpenter.sh/discovery" = var.cluster_name
         }
       )
     }
