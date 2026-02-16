@@ -157,12 +157,13 @@ module "karpenter" {
 module "scheduler" {
   source = "../../modules/scheduler"
 
-  project_name     = local.project_name
-  environment      = local.environment
-  aws_region       = var.aws_region
-  eks_cluster_name = module.eks.cluster_name
-  eks_cluster_arn  = module.eks.cluster_arn
-  common_tags      = local.common_tags
+  project_name            = local.project_name
+  environment             = local.environment
+  aws_region              = var.aws_region
+  eks_cluster_name        = module.eks.cluster_name
+  eks_cluster_arn         = module.eks.cluster_arn
+  node_instance_role_arn  = module.eks.node_instance_role_arn
+  common_tags             = local.common_tags
 }
 
 # Outputs

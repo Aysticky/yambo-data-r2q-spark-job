@@ -23,6 +23,11 @@ variable "eks_cluster_arn" {
   type        = string
 }
 
+variable "node_instance_role_arn" {
+  description = "EKS node instance IAM role ARN"
+  type        = string
+}
+
 variable "log_retention_days" {
   description = "CloudWatch log retention days"
   type        = number

@@ -14,6 +14,10 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 5.0"
     }
+    kubectl = {
+      source  = "gavinbunney/kubectl"
+      version = "~> 1.14"
+    }
   }
 }
 
@@ -235,4 +239,78 @@ resource "aws_cloudwatch_metric_alarm" "lambda_errors" {
   }
 
   tags = local.common_tags
+}
+# ==============================================================================
+# Kubernetes RBAC for Lambda IAM Role
+# ==============================================================================
+
+# Get current aws-auth ConfigMap
+data "kubectl_file_documents" "aws_auth" {
+  content = <<-EOT
+    apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: aws-auth
+      namespace: kube-system
+    data:
+      mapRoles: |
+        - rolearn: ${var.node_instance_role_arn}
+          groups:
+          - system:bootstrappers
+          - system:nodes
+          username: system:node:{{EC2PrivateDNSName}}
+        - rolearn: ${aws_iam_role.lambda_spark_trigger.arn}
+          groups:
+          - spark-job-managers
+          username: lambda-spark-trigger
+  EOT
+}
+
+# Update aws-auth ConfigMap to include Lambda role
+resource "kubectl_manifest" "aws_auth" {
+  yaml_body = data.kubectl_file_documents.aws_auth.documents[0]
+
+  depends_on = [aws_lambda_function.spark_job_trigger]
+}
+
+# ClusterRole: Manage Spark applications
+resource "kubectl_manifest" "spark_job_manager_role" {
+  yaml_body = <<-EOT
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRole
+    metadata:
+      name: spark-job-manager
+    rules:
+    - apiGroups: ["sparkoperator.k8s.io"]
+      resources: ["sparkapplications"]
+      verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+    - apiGroups: [""]
+      resources: ["pods", "services", "configmaps"]
+      verbs: ["get", "list", "watch"]
+    - apiGroups: [""]
+      resources: ["pods/log"]
+      verbs: ["get", "list"]
+  EOT
+
+  depends_on = [kubectl_manifest.aws_auth]
+}
+
+# ClusterRoleBinding: Bind Lambda IAM role to ClusterRole
+resource "kubectl_manifest" "spark_job_manager_binding" {
+  yaml_body = <<-EOT
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    metadata:
+      name: spark-job-manager-binding
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: spark-job-manager
+    subjects:
+    - apiGroup: rbac.authorization.k8s.io
+      kind: Group
+      name: spark-job-managers
+  EOT
+
+  depends_on = [kubectl_manifest.spark_job_manager_role]
 }
