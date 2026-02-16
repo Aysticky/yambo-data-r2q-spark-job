@@ -177,10 +177,9 @@ spec:
       environment: dev
       version: v1.0.0
     
-    # Node selector (optional: run on specific node pool)
-    # nodeSelector:
-    #   workload: spark
-    #   instance-type: r5.2xlarge  # Memory-optimized
+    # Node selector: Use Karpenter-provisioned nodes for Spark workloads
+    nodeSelector:
+      workload: spark
     
     # Affinity: Spread executors across AZs
     affinity:

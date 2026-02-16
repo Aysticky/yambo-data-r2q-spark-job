@@ -53,3 +53,13 @@ output "oidc_provider_arn" {
   description = "OIDC provider ARN"
   value       = aws_iam_openid_connect_provider.eks.arn
 }
+
+output "node_instance_role_arn" {
+  description = "Node instance IAM role ARN"
+  value       = aws_iam_role.eks_nodes.arn
+}
+
+output "node_instance_role_name" {
+  description = "Node instance IAM role name"
+  value       = aws_iam_role.eks_nodes.name
+}

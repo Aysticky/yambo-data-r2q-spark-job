@@ -77,6 +77,7 @@ resource "aws_subnet" "private" {
       Name                                          = "${var.project_name}-private-subnet-${count.index + 1}-${var.environment}"
       "kubernetes.io/cluster/${local.cluster_name}" = "shared"
       "kubernetes.io/role/internal-elb"             = "1"
+      "karpenter.sh/discovery"                      = local.cluster_name
     }
   )
 }
@@ -204,6 +205,7 @@ resource "aws_security_group" "eks_nodes" {
     {
       Name                                          = "${var.project_name}-eks-nodes-sg-${var.environment}"
       "kubernetes.io/cluster/${local.cluster_name}" = "owned"
+      "karpenter.sh/discovery"                      = local.cluster_name
     }
   )
 }

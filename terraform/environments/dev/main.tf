@@ -14,6 +14,14 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 5.0"
     }
+    helm = {
+      source  = "hashicorp/helm"
+      version = "~> 2.12"
+    }
+    kubectl = {
+      source  = "gavinbunney/kubectl"
+      version = "~> 1.14"
+    }
   }
 
   # Backend configuration for state management
@@ -40,6 +48,31 @@ provider "aws" {
       Repository  = "yambo-data-r2q-spark-job"
       CostCenter  = "DataEngineering"
     }
+  }
+}
+
+# Helm provider for Karpenter
+provider "helm" {
+  kubernetes {
+    host                   = module.eks.cluster_endpoint
+    cluster_ca_certificate = base64decode(module.eks.cluster_certificate_authority_data)
+    exec {
+      api_version = "client.authentication.k8s.io/v1beta1"
+      command     = "aws"
+      args        = ["eks", "get-token", "--cluster-name", module.eks.cluster_name]
+    }
+  }
+}
+
+# Kubectl provider for Karpenter manifests
+provider "kubectl" {
+  host                   = module.eks.cluster_endpoint
+  cluster_ca_certificate = base64decode(module.eks.cluster_certificate_authority_data)
+  load_config_file       = false
+  exec {
+    api_version = "client.authentication.k8s.io/v1beta1"
+    command     = "aws"
+    args        = ["eks", "get-token", "--cluster-name", module.eks.cluster_name]
   }
 }
 
@@ -105,6 +138,23 @@ module "eks" {
   aws_region      = var.aws_region
   cluster_version = "1.29" # Incremental upgrade: 1.28 -> 1.29 (AWS requires step-by-step)
   common_tags     = local.common_tags
+}
+
+# Karpenter for auto-scaling (scale to zero)
+module "karpenter" {
+  source = "../../modules/karpenter"
+
+  project_name            = local.project_name
+  environment             = local.environment
+  cluster_name            = module.eks.cluster_name
+  cluster_endpoint        = module.eks.cluster_endpoint
+  cluster_arn             = module.eks.cluster_arn
+  oidc_provider_arn       = module.eks.oidc_provider_arn
+  node_instance_role_arn  = module.eks.node_instance_role_arn
+  node_instance_role_name = module.eks.node_instance_role_name
+  common_tags             = local.common_tags
+
+  depends_on = [module.eks]
 }
 
 # Automated Spark job scheduler
