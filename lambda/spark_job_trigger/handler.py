@@ -117,7 +117,8 @@ def get_kube_client(cluster_name: str, region: str) -> client.CustomObjectsApi:
     # Configure Kubernetes client
     configuration = client.Configuration()
     configuration.host = cluster_endpoint
-    configuration.api_key = {"authorization": f"Bearer {bearer_token}"}
+    configuration.api_key = {"authorization": bearer_token}
+    configuration.api_key_prefix = {"authorization": "Bearer"}
     configuration.ssl_ca_cert = ca_cert_path
     configuration.verify_ssl = True
     
