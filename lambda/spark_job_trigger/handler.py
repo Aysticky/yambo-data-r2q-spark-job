@@ -15,11 +15,9 @@ import base64
 import json
 import logging
 import os
-import re
 from datetime import datetime
 
 import boto3
-from botocore.signers import RequestSigner
 import yaml
 from kubernetes import client
 from kubernetes.client.rest import ApiException
@@ -37,47 +35,50 @@ sts_client = boto3.client("sts")
 def get_eks_token(cluster_name: str, region: str) -> str:
     """
     Get authentication token for EKS cluster using STS.
-    Generates a pre-signed URL that EKS accepts as authentication.
+    Implements the aws-iam-authenticator token format.
+    Reference: https://github.com/kubernetes-sigs/aws-iam-authenticator/
     """
     try:
-        # Create STS client for the region
+        import botocore.auth
+        import botocore.awsrequest
+        
+        # Get STS client and credentials
         sts = boto3.client('sts', region_name=region)
+        credentials = sts._request_signer._credentials
         
-        # Get the service ID for signing
-        service_id = sts.meta.service_model.service_id
-        
-        # Create a request signer
-        signer = RequestSigner(
-            service_id,
-            region,
-            'sts',
-            'v4',
-            sts._request_signer._credentials,
-            sts.meta.events
-        )
-        
-        # Generate pre-signed URL for GetCallerIdentity
+        # Build the STS GetCallerIdentity URL
+        sts_url = f"https://sts.{region}.amazonaws.com/"
         params = {
-            'method': 'GET',
-            'url': f'https://sts.{region}.amazonaws.com/?Action=GetCallerIdentity&Version=2011-06-15',
-            'body': {},
-            'headers': {
-                'x-k8s-aws-id': cluster_name
-            },
-            'context': {}
+            'Action': 'GetCallerIdentity',
+            'Version': '2011-06-15'
         }
         
-        signed_url = signer.generate_presigned_url(
-            params,
-            region_name=region,
-            expires_in=60,
-            operation_name=''
+        # Create AWS request (no extra headers needed in presigned URL)
+        request = botocore.awsrequest.AWSRequest(
+            method='GET',
+            url=sts_url,
+            params=params
         )
         
-        # Remove https:// scheme before encoding
-        url_without_https = re.sub(r'^https://', '', signed_url)
+        # Prepare the request (adds query params to URL)
+        request.prepare()
         
-        # Encode the URL as base64 for the token (removing padding)
+        # Create presigned URL using SigV4QueryAuth (signature in query params)
+        signer = botocore.auth.SigV4QueryAuth(
+            credentials,
+            'sts',
+            region,
+            expires=60
+        )
+        signer.add_auth(request)
+        
+        # Get the final URL
+        presigned_url = request.url
+        
+        # Strip https:// and encode
+        url_without_https = presigned_url.replace('https://', '')
+        
+        # Base64 encode and create token
         token = 'k8s-aws-v1.' + base64.urlsafe_b64encode(
             url_without_https.encode('utf-8')
         ).decode('utf-8').rstrip('=')
@@ -124,6 +125,10 @@ def get_kube_client(cluster_name: str, region: str) -> client.CustomObjectsApi:
     
     # Create API client
     api_client = client.ApiClient(configuration)
+    
+    # Add x-k8s-aws-id header to all requests
+    api_client.default_headers['x-k8s-aws-id'] = cluster_name
+    
     return client.CustomObjectsApi(api_client)
 
 
