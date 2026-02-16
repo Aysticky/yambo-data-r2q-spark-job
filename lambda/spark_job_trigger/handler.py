@@ -15,10 +15,11 @@ import base64
 import json
 import logging
 import os
-import subprocess
 from datetime import datetime
+import urllib.parse
 
 import boto3
+from botocore.signers import RequestSigner
 import yaml
 from kubernetes import client
 from kubernetes.client.rest import ApiException
@@ -30,19 +31,56 @@ logger.setLevel(logging.INFO)
 # AWS clients
 eks_client = boto3.client("eks")
 s3_client = boto3.client("s3")
+sts_client = boto3.client("sts")
 
 
 def get_eks_token(cluster_name: str, region: str) -> str:
-    """Get authentication token for EKS cluster using AWS CLI."""
+    """
+    Get authentication token for EKS cluster using STS.
+    Generates a pre-signed URL that EKS accepts as authentication.
+    """
     try:
-        result = subprocess.run(
-            ["aws", "eks", "get-token", "--cluster-name", cluster_name, "--region", region],
-            capture_output=True,
-            text=True,
-            check=True
+        # Create STS client for the region
+        sts = boto3.client('sts', region_name=region)
+        
+        # Get the service ID for signing
+        service_id = sts.meta.service_model.service_id
+        
+        # Create a request signer
+        signer = RequestSigner(
+            service_id,
+            region,
+            'sts',
+            'v4',
+            sts._request_signer._credentials,
+            sts.meta.events
         )
-        token_data = json.loads(result.stdout)
-        return token_data["status"]["token"]
+        
+        # Generate pre-signed URL for GetCallerIdentity
+        params = {
+            'method': 'GET',
+            'url': f'https://sts.{region}.amazonaws.com/?Action=GetCallerIdentity&Version=2011-06-15',
+            'body': {},
+            'headers': {
+                'x-k8s-aws-id': cluster_name
+            },
+            'context': {}
+        }
+        
+        signed_url = signer.generate_presigned_url(
+            params,
+            region_name=region,
+            expires_in=60,
+            operation_name=''
+        )
+        
+        # Encode the URL as base64 for the token
+        token = 'k8s-aws-v1.' + base64.urlsafe_b64encode(
+            signed_url.encode('utf-8')
+        ).decode('utf-8').rstrip('=')
+        
+        return token
+        
     except Exception as e:
         logger.error(f"Failed to get EKS token: {e}")
         raise

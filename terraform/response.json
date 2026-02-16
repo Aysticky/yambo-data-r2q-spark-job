@@ -1,0 +1,1 @@
+{"statusCode": 500, "body": "{\"status\": \"error\", \"message\": \"[Errno 2] No such file or directory: 'aws'\", \"job_name\": \"yambo-extract-job\", \"namespace\": \"spark-jobs\", \"timestamp\": \"2026-02-16T19:30:48.088933\"}"}
