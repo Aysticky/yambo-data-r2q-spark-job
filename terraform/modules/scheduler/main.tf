@@ -62,11 +62,11 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "manifests" {
 
 # Upload extract job manifest to S3
 resource "aws_s3_object" "extract_manifest" {
-  bucket  = aws_s3_bucket.manifests.id
-  key     = "spark-jobs/yambo-extract-job.yaml"
-  content = templatefile("${path.root}/../../k8s/spark-application-extract.yaml", {})
+  bucket = aws_s3_bucket.manifests.id
+  key    = "spark-jobs/yambo-extract-job.yaml"
+  source = "${path.root}/../../../k8s/spark-application-extract.yaml"
 
-  etag = md5(templatefile("${path.root}/../../k8s/spark-application-extract.yaml", {}))
+  etag = filemd5("${path.root}/../../../k8s/spark-application-extract.yaml")
 
   tags = local.common_tags
 }
