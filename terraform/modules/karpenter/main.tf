@@ -17,9 +17,9 @@ terraform {
       source  = "hashicorp/helm"
       version = "~> 2.12"
     }
-    time = {
-      source  = "hashicorp/time"
-      version = "~> 0.10"
+    null = {
+      source  = "hashicorp/null"
+      version = "~> 3.2"
     }
   }
 }
@@ -35,6 +35,9 @@ locals {
     }
   )
 }
+
+# Get current AWS region for kubectl configuration
+data "aws_region" "current" {}
 
 # Karpenter Controller IAM Role
 resource "aws_iam_role" "karpenter_controller" {
@@ -176,9 +179,28 @@ resource "helm_release" "karpenter" {
   ]
 }
 
-# Wait for Karpenter webhook to be ready
-resource "time_sleep" "wait_for_karpenter" {
-  create_duration = "60s"
+# Wait for Karpenter deployment to be ready before creating manifests
+# This ensures the webhook service is available to validate EC2NodeClass and NodePool resources
+resource "null_resource" "wait_for_karpenter" {
+  provisioner "local-exec" {
+    command = <<-EOT
+      aws eks update-kubeconfig --name ${var.cluster_name} --region ${data.aws_region.current.name} --kubeconfig /tmp/kubeconfig-karpenter
+      export KUBECONFIG=/tmp/kubeconfig-karpenter
+      
+      echo "Waiting for Karpenter deployment to be ready..."
+      kubectl wait --for=condition=available --timeout=180s \
+        deployment/karpenter -n ${local.karpenter_namespace}
+      
+      echo "Waiting for Karpenter pods to be running..."
+      kubectl wait --for=condition=ready --timeout=60s \
+        pod -l app.kubernetes.io/name=karpenter -n ${local.karpenter_namespace}
+      
+      echo "Karpenter is ready!"
+      rm -f /tmp/kubeconfig-karpenter
+    EOT
+
+    interpreter = ["/bin/bash", "-c"]
+  }
 
   depends_on = [
     helm_release.karpenter
@@ -221,7 +243,7 @@ resource "kubectl_manifest" "ec2_node_class" {
   })
 
   depends_on = [
-    time_sleep.wait_for_karpenter
+    null_resource.wait_for_karpenter
   ]
 }
 
