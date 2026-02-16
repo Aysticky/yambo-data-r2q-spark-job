@@ -131,7 +131,7 @@ def download_manifest(environment: str, job_name: str) -> dict:
         job_name: Name of the Spark job
         
     Returns:
-        Parsed YAML manifest as dictionary
+        Parsed YAML manifest as dictionary (SparkApplication only)
     """
     bucket = f"yambo-{environment}-manifests"
     key = f"spark-jobs/{job_name}.yaml"
@@ -141,8 +141,19 @@ def download_manifest(environment: str, job_name: str) -> dict:
     try:
         response = s3_client.get_object(Bucket=bucket, Key=key)
         manifest_content = response["Body"].read().decode("utf-8")
-        manifest = yaml.safe_load(manifest_content)
-        return manifest
+        
+        # Handle multi-document YAML files (separated by ---)
+        # Find the SparkApplication document
+        documents = list(yaml.safe_load_all(manifest_content))
+        
+        for doc in documents:
+            if doc and doc.get("kind") == "SparkApplication":
+                logger.info(f"Found SparkApplication: {doc.get('metadata', {}).get('name')}")
+                return doc
+        
+        # If no SparkApplication found, raise error
+        raise ValueError(f"No SparkApplication found in manifest {key}")
+        
     except Exception as e:
         logger.error(f"Failed to download manifest: {e}")
         raise
