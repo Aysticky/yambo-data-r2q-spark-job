@@ -182,6 +182,12 @@ resource "helm_release" "karpenter" {
 # Wait for Karpenter deployment to be ready before creating manifests
 # This ensures the webhook service is available to validate EC2NodeClass and NodePool resources
 resource "null_resource" "wait_for_karpenter" {
+  # Trigger re-execution whenever Helm release changes
+  triggers = {
+    helm_revision = helm_release.karpenter.metadata[0].revision
+    always_run    = timestamp()
+  }
+
   provisioner "local-exec" {
     command = <<-EOT
       aws eks update-kubeconfig --name ${var.cluster_name} --region ${data.aws_region.current.name} --kubeconfig /tmp/kubeconfig-karpenter
@@ -205,7 +211,7 @@ resource "null_resource" "wait_for_karpenter" {
       kubectl patch crd nodepools.karpenter.sh --type='json' \
         -p='[{"op": "replace", "path": "/spec/conversion/webhook/clientConfig/service/namespace", "value": "'${local.karpenter_namespace}'"}]'
       
-      echo "Karpenter is ready!"
+      echo "Karpenter webhook namespace patched successfully!"
       rm -f /tmp/kubeconfig-karpenter
     EOT
 
