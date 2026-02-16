@@ -164,7 +164,6 @@ resource "aws_lambda_function" "spark_job_trigger" {
   environment {
     variables = {
       EKS_CLUSTER_NAME = var.eks_cluster_name
-      AWS_REGION       = var.aws_region
       NAMESPACE        = "spark-jobs"
       JOB_NAME         = "yambo-extract-job"
       ENVIRONMENT      = var.environment
