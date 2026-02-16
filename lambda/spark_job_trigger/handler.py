@@ -258,6 +258,14 @@ def lambda_handler(event, context):
     """
     logger.info(f"Received event: {json.dumps(event)}")
     
+    # Log the Lambda execution identity for debugging
+    try:
+        caller_identity = sts_client.get_caller_identity()
+        logger.info(f"Lambda execution ARN: {caller_identity['Arn']}")
+        logger.info(f"Lambda execution UserId: {caller_identity['UserId']}")
+    except Exception as e:
+        logger.warning(f"Could not get caller identity: {e}")
+    
     # Get environment variables
     cluster_name = os.environ["EKS_CLUSTER_NAME"]
     region = os.environ["AWS_REGION"]
