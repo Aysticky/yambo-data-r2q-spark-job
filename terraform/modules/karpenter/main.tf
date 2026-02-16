@@ -195,6 +195,16 @@ resource "null_resource" "wait_for_karpenter" {
       kubectl wait --for=condition=ready --timeout=60s \
         pod -l app.kubernetes.io/name=karpenter -n ${local.karpenter_namespace}
       
+      echo "Patching CRD webhook configurations to use correct namespace..."
+      kubectl patch crd ec2nodeclasses.karpenter.k8s.aws --type='json' \
+        -p='[{"op": "replace", "path": "/spec/conversion/webhook/clientConfig/service/namespace", "value": "'${local.karpenter_namespace}'"}]'
+      
+      kubectl patch crd nodeclaims.karpenter.sh --type='json' \
+        -p='[{"op": "replace", "path": "/spec/conversion/webhook/clientConfig/service/namespace", "value": "'${local.karpenter_namespace}'"}]'
+      
+      kubectl patch crd nodepools.karpenter.sh --type='json' \
+        -p='[{"op": "replace", "path": "/spec/conversion/webhook/clientConfig/service/namespace", "value": "'${local.karpenter_namespace}'"}]'
+      
       echo "Karpenter is ready!"
       rm -f /tmp/kubeconfig-karpenter
     EOT
