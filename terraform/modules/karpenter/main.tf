@@ -114,6 +114,7 @@ resource "aws_iam_role_policy" "karpenter_controller" {
           "iam:GetInstanceProfile",
           "iam:CreateInstanceProfile",
           "iam:DeleteInstanceProfile",
+          "iam:TagInstanceProfile",
           "iam:AddRoleToInstanceProfile",
           "iam:RemoveRoleFromInstanceProfile"
         ]
