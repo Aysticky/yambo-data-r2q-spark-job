@@ -88,7 +88,7 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "data_lake" {
       sse_algorithm     = "aws:kms"
       kms_master_key_id = aws_kms_key.s3_key.arn
     }
-    bucket_key_enabled = true  # Reduces KMS costs by 99%
+    bucket_key_enabled = true # Reduces KMS costs by 99%
   }
 }
 
@@ -232,7 +232,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "spark_logs" {
     id     = "spark-logs-retention"
     status = "Enabled"
 
-    filter {}  # Empty filter applies to all objects
+    filter {} # Empty filter applies to all objects
 
     expiration {
       days = var.environment == "prod" ? 90 : 30

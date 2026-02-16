@@ -74,13 +74,13 @@ variable "common_tags" {
 
 # Checkpoints table
 resource "aws_dynamodb_table" "checkpoints" {
-  name           = "${var.project_name}-${var.environment}-checkpoints"
-  billing_mode   = "PAY_PER_REQUEST"  # On-demand mode
-  hash_key       = "checkpoint_key"
+  name         = "${var.project_name}-${var.environment}-checkpoints"
+  billing_mode = "PAY_PER_REQUEST" # On-demand mode
+  hash_key     = "checkpoint_key"
 
   attribute {
     name = "checkpoint_key"
-    type = "S"  # String
+    type = "S" # String
   }
 
   # Enable point-in-time recovery (backups)
@@ -132,25 +132,25 @@ resource "aws_kms_alias" "dynamodb_key" {
 # Optional: Job metadata table (for tracking Spark job runs)
 # This is separate from checkpoints - stores job execution history
 resource "aws_dynamodb_table" "job_metadata" {
-  name           = "${var.project_name}-${var.environment}-job-metadata"
-  billing_mode   = "PAY_PER_REQUEST"
-  hash_key       = "job_id"
-  range_key      = "start_time"
+  name         = "${var.project_name}-${var.environment}-job-metadata"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "job_id"
+  range_key    = "start_time"
 
   attribute {
     name = "job_id"
-    type = "S"  # String (e.g., "extract-stripe-charges")
+    type = "S" # String (e.g., "extract-stripe-charges")
   }
 
   attribute {
     name = "start_time"
-    type = "S"  # ISO 8601 timestamp
+    type = "S" # ISO 8601 timestamp
   }
 
   # GSI for querying by status
   attribute {
     name = "status"
-    type = "S"  # running, succeeded, failed
+    type = "S" # running, succeeded, failed
   }
 
   global_secondary_index {
@@ -193,11 +193,11 @@ resource "aws_cloudwatch_metric_alarm" "checkpoints_read_throttle" {
   evaluation_periods  = "2"
   metric_name         = "UserErrors"
   namespace           = "AWS/DynamoDB"
-  period              = "300"  # 5 minutes
+  period              = "300" # 5 minutes
   statistic           = "Sum"
   threshold           = "10"
   alarm_description   = "DynamoDB checkpoints table is being throttled"
-  alarm_actions       = []  # Add SNS topic ARN for notifications
+  alarm_actions       = [] # Add SNS topic ARN for notifications
 
   dimensions = {
     TableName = aws_dynamodb_table.checkpoints.name

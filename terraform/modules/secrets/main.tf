@@ -134,7 +134,7 @@ resource "aws_secretsmanager_secret_version" "stripe_api_placeholder" {
   })
 
   lifecycle {
-    ignore_changes = [secret_string]  # Don't overwrite manual updates
+    ignore_changes = [secret_string] # Don't overwrite manual updates
   }
 }
 

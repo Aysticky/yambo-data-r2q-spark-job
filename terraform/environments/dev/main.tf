@@ -103,14 +103,14 @@ module "eks" {
   project_name    = local.project_name
   environment     = local.environment
   aws_region      = var.aws_region
-  cluster_version = "1.29"  # Incremental upgrade: 1.28 -> 1.29 (AWS requires step-by-step)
+  cluster_version = "1.29" # Incremental upgrade: 1.28 -> 1.29 (AWS requires step-by-step)
   common_tags     = local.common_tags
 }
 
 # Automated Spark job scheduler
 module "scheduler" {
   source = "../../modules/scheduler"
-  
+
   project_name     = local.project_name
   environment      = local.environment
   aws_region       = var.aws_region

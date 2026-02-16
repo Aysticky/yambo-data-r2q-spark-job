@@ -18,9 +18,9 @@ terraform {
 }
 
 locals {
-  function_name = "${var.project_name}-spark-trigger-${var.environment}"
+  function_name   = "${var.project_name}-spark-trigger-${var.environment}"
   manifest_bucket = "${var.project_name}-${var.environment}-manifests"
-  
+
   common_tags = merge(
     var.common_tags,
     {
@@ -33,7 +33,7 @@ locals {
 # S3 bucket for storing Kubernetes manifests
 resource "aws_s3_bucket" "manifests" {
   bucket = local.manifest_bucket
-  
+
   tags = merge(
     local.common_tags,
     {
@@ -44,7 +44,7 @@ resource "aws_s3_bucket" "manifests" {
 
 resource "aws_s3_bucket_versioning" "manifests" {
   bucket = aws_s3_bucket.manifests.id
-  
+
   versioning_configuration {
     status = "Enabled"
   }
@@ -52,7 +52,7 @@ resource "aws_s3_bucket_versioning" "manifests" {
 
 resource "aws_s3_bucket_server_side_encryption_configuration" "manifests" {
   bucket = aws_s3_bucket.manifests.id
-  
+
   rule {
     apply_server_side_encryption_by_default {
       sse_algorithm = "AES256"
@@ -62,19 +62,19 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "manifests" {
 
 # Upload extract job manifest to S3
 resource "aws_s3_object" "extract_manifest" {
-  bucket = aws_s3_bucket.manifests.id
-  key    = "spark-jobs/yambo-extract-job.yaml"
+  bucket  = aws_s3_bucket.manifests.id
+  key     = "spark-jobs/yambo-extract-job.yaml"
   content = templatefile("${path.module}/../../k8s/spark-application-extract.yaml", {})
-  
+
   etag = md5(templatefile("${path.module}/../../k8s/spark-application-extract.yaml", {}))
-  
+
   tags = local.common_tags
 }
 
 # Lambda execution role
 resource "aws_iam_role" "lambda_spark_trigger" {
   name = "${local.function_name}-role"
-  
+
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
@@ -87,7 +87,7 @@ resource "aws_iam_role" "lambda_spark_trigger" {
       }
     ]
   })
-  
+
   tags = local.common_tags
 }
 
@@ -95,7 +95,7 @@ resource "aws_iam_role" "lambda_spark_trigger" {
 resource "aws_iam_role_policy" "lambda_eks_access" {
   name = "eks-access"
   role = aws_iam_role.lambda_spark_trigger.id
-  
+
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
@@ -115,7 +115,7 @@ resource "aws_iam_role_policy" "lambda_eks_access" {
 resource "aws_iam_role_policy" "lambda_s3_access" {
   name = "s3-manifests-access"
   role = aws_iam_role.lambda_spark_trigger.id
-  
+
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
@@ -144,7 +144,7 @@ resource "aws_iam_role_policy_attachment" "lambda_logs" {
 resource "aws_cloudwatch_log_group" "lambda_spark_trigger" {
   name              = "/aws/lambda/${local.function_name}"
   retention_in_days = var.log_retention_days
-  
+
   tags = local.common_tags
 }
 
@@ -152,15 +152,15 @@ resource "aws_cloudwatch_log_group" "lambda_spark_trigger" {
 resource "aws_lambda_function" "spark_job_trigger" {
   function_name = local.function_name
   role          = aws_iam_role.lambda_spark_trigger.arn
-  
+
   filename         = "${path.module}/lambda_function.zip"
   source_code_hash = fileexists("${path.module}/lambda_function.zip") ? filebase64sha256("${path.module}/lambda_function.zip") : null
-  
-  handler = "handler.lambda_handler"
-  runtime = "python3.9"
-  timeout = 300  # 5 minutes
+
+  handler     = "handler.lambda_handler"
+  runtime     = "python3.9"
+  timeout     = 300 # 5 minutes
   memory_size = 512
-  
+
   environment {
     variables = {
       EKS_CLUSTER_NAME = var.eks_cluster_name
@@ -170,14 +170,14 @@ resource "aws_lambda_function" "spark_job_trigger" {
       ENVIRONMENT      = var.environment
     }
   }
-  
+
   depends_on = [
     aws_cloudwatch_log_group.lambda_spark_trigger,
     aws_iam_role_policy.lambda_eks_access,
     aws_iam_role_policy.lambda_s3_access,
     aws_iam_role_policy_attachment.lambda_logs
   ]
-  
+
   tags = merge(
     local.common_tags,
     {
@@ -190,11 +190,11 @@ resource "aws_lambda_function" "spark_job_trigger" {
 resource "aws_cloudwatch_event_rule" "extract_job_schedule" {
   name        = "${var.project_name}-extract-job-${var.environment}"
   description = "Trigger Spark extract job on schedule"
-  
+
   # Dev: Once daily at 2 AM UTC
   # Prod: Twice daily at 2 AM and 2 PM UTC
   schedule_expression = var.environment == "prod" ? "cron(0 2,14 * * ? *)" : "cron(0 2 * * ? *)"
-  
+
   tags = local.common_tags
 }
 
@@ -203,7 +203,7 @@ resource "aws_cloudwatch_event_target" "lambda_target" {
   rule      = aws_cloudwatch_event_rule.extract_job_schedule.name
   target_id = "TriggerLambda"
   arn       = aws_lambda_function.spark_job_trigger.arn
-  
+
   input = jsonencode({
     job_name = "yambo-extract-job"
     source   = "eventbridge-schedule"
@@ -230,10 +230,10 @@ resource "aws_cloudwatch_metric_alarm" "lambda_errors" {
   statistic           = "Sum"
   threshold           = 0
   alarm_description   = "Alert when Lambda function has errors"
-  
+
   dimensions = {
     FunctionName = aws_lambda_function.spark_job_trigger.function_name
   }
-  
+
   tags = local.common_tags
 }

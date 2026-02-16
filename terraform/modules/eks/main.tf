@@ -26,7 +26,7 @@ resource "aws_vpc" "eks_vpc" {
   tags = merge(
     var.common_tags,
     {
-      Name = "${var.project_name}-vpc-${var.environment}"
+      Name                                          = "${var.project_name}-vpc-${var.environment}"
       "kubernetes.io/cluster/${local.cluster_name}" = "shared"
     }
   )
@@ -56,7 +56,7 @@ resource "aws_subnet" "public" {
   tags = merge(
     var.common_tags,
     {
-      Name = "${var.project_name}-public-subnet-${count.index + 1}-${var.environment}"
+      Name                                          = "${var.project_name}-public-subnet-${count.index + 1}-${var.environment}"
       "kubernetes.io/cluster/${local.cluster_name}" = "shared"
       "kubernetes.io/role/elb"                      = "1"
     }
@@ -74,7 +74,7 @@ resource "aws_subnet" "private" {
   tags = merge(
     var.common_tags,
     {
-      Name = "${var.project_name}-private-subnet-${count.index + 1}-${var.environment}"
+      Name                                          = "${var.project_name}-private-subnet-${count.index + 1}-${var.environment}"
       "kubernetes.io/cluster/${local.cluster_name}" = "shared"
       "kubernetes.io/role/internal-elb"             = "1"
     }
@@ -83,7 +83,7 @@ resource "aws_subnet" "private" {
 
 # Elastic IPs for NAT Gateways
 resource "aws_eip" "nat" {
-  count  = var.environment == "prod" ? 3 : 1  # Single NAT in dev for cost savings
+  count  = var.environment == "prod" ? 3 : 1 # Single NAT in dev for cost savings
   domain = "vpc"
 
   tags = merge(

@@ -94,7 +94,7 @@ resource "aws_kms_alias" "ecr_key" {
 # Spark job image repository
 resource "aws_ecr_repository" "spark_job" {
   name                 = "${var.project_name}-${var.environment}-spark-job"
-  image_tag_mutability = "MUTABLE"  # Allow overwriting tags like "dev-latest"
+  image_tag_mutability = "MUTABLE" # Allow overwriting tags like "dev-latest"
 
   # Enable encryption at rest
   encryption_configuration {
