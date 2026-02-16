@@ -89,6 +89,15 @@ jobs:
         with:
           terraform_version: 1.6.0
       
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+      
+      - name: Package Lambda function
+        run: |
+          python scripts/package-lambda.py
+      
       - name: Terraform init
         run: |
           cd terraform/environments/dev
