@@ -15,8 +15,8 @@ import base64
 import json
 import logging
 import os
+import re
 from datetime import datetime
-import urllib.parse
 
 import boto3
 from botocore.signers import RequestSigner
@@ -74,15 +74,19 @@ def get_eks_token(cluster_name: str, region: str) -> str:
             operation_name=''
         )
         
-        # Encode the URL as base64 for the token
+        # Remove https:// scheme before encoding
+        url_without_https = re.sub(r'^https://', '', signed_url)
+        
+        # Encode the URL as base64 for the token (removing padding)
         token = 'k8s-aws-v1.' + base64.urlsafe_b64encode(
-            signed_url.encode('utf-8')
+            url_without_https.encode('utf-8')
         ).decode('utf-8').rstrip('=')
         
+        logger.info(f"Successfully generated EKS token for cluster: {cluster_name}")
         return token
         
     except Exception as e:
-        logger.error(f"Failed to get EKS token: {e}")
+        logger.error(f"Failed to get EKS token: {e}", exc_info=True)
         raise
 
 
