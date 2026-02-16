@@ -34,6 +34,9 @@ locals {
   )
 }
 
+# Get current AWS account ID
+data "aws_caller_identity" "current" {}
+
 # S3 bucket for storing Kubernetes manifests
 resource "aws_s3_bucket" "manifests" {
   bucket = local.manifest_bucket
@@ -270,6 +273,11 @@ data "kubectl_file_documents" "aws_auth" {
           groups:
           - spark-job-managers
           username: lambda-spark-trigger
+      mapUsers: |
+        - userarn: arn:aws:sts::${data.aws_caller_identity.current.account_id}:assumed-role/${aws_iam_role.lambda_spark_trigger.name}/${local.function_name}
+          groups:
+          - spark-job-managers
+          username: lambda-spark-trigger-session
   EOT
 }
 
