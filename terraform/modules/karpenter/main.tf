@@ -17,6 +17,10 @@ terraform {
       source  = "hashicorp/helm"
       version = "~> 2.12"
     }
+    time = {
+      source  = "hashicorp/time"
+      version = "~> 0.10"
+    }
   }
 }
 
@@ -172,6 +176,15 @@ resource "helm_release" "karpenter" {
   ]
 }
 
+# Wait for Karpenter webhook to be ready
+resource "time_sleep" "wait_for_karpenter" {
+  create_duration = "60s"
+
+  depends_on = [
+    helm_release.karpenter
+  ]
+}
+
 # EC2NodeClass for Karpenter nodes
 resource "kubectl_manifest" "ec2_node_class" {
   yaml_body = yamlencode({
@@ -208,7 +221,7 @@ resource "kubectl_manifest" "ec2_node_class" {
   })
 
   depends_on = [
-    helm_release.karpenter
+    time_sleep.wait_for_karpenter
   ]
 }
 
