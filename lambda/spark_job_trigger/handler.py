@@ -34,56 +34,31 @@ sts_client = boto3.client("sts")
 
 def get_eks_token(cluster_name: str, region: str) -> str:
     """
-    Get authentication token for EKS cluster using STS.
-    Implements the aws-iam-authenticator token format.
-    Reference: https://github.com/kubernetes-sigs/aws-iam-authenticator/
+    Get authentication token for EKS cluster using AWS CLI.
+    This is the most reliable method and matches official AWS documentation.
     """
     try:
-        import botocore.auth
-        import botocore.awsrequest
+        import subprocess
+        import json as json_lib
         
-        # Get STS client and credentials
-        sts = boto3.client('sts', region_name=region)
-        credentials = sts._request_signer._credentials
+        # Use AWS CLI to get token (AWS CLI is available in Lambda Python runtime)
+        cmd = [
+            'aws', 'eks', 'get-token',
+            '--cluster-name', cluster_name,
+            '--region', region
+        ]
         
-        # Build the STS GetCallerIdentity URL
-        sts_url = f"https://sts.{region}.amazonaws.com/"
-        params = {
-            'Action': 'GetCallerIdentity',
-            'Version': '2011-06-15'
-        }
-        
-        # Create AWS request (no extra headers needed in presigned URL)
-        request = botocore.awsrequest.AWSRequest(
-            method='GET',
-            url=sts_url,
-            params=params
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            check=True
         )
         
-        # Prepare the request (adds query params to URL)
-        request.prepare()
+        token_response = json_lib.loads(result.stdout)
+        token = token_response['status']['token']
         
-        # Create presigned URL using SigV4QueryAuth (signature in query params)
-        signer = botocore.auth.SigV4QueryAuth(
-            credentials,
-            'sts',
-            region,
-            expires=60
-        )
-        signer.add_auth(request)
-        
-        # Get the final URL
-        presigned_url = request.url
-        
-        # Strip https:// and encode
-        url_without_https = presigned_url.replace('https://', '')
-        
-        # Base64 encode and create token
-        token = 'k8s-aws-v1.' + base64.urlsafe_b64encode(
-            url_without_https.encode('utf-8')
-        ).decode('utf-8').rstrip('=')
-        
-        logger.info(f"Successfully generated EKS token for cluster: {cluster_name}")
+        logger.info(f"Successfully generated EKS token using AWS CLI for cluster: {cluster_name}")
         return token
         
     except Exception as e:
@@ -125,10 +100,6 @@ def get_kube_client(cluster_name: str, region: str) -> client.CustomObjectsApi:
     
     # Create API client
     api_client = client.ApiClient(configuration)
-    
-    # Add x-k8s-aws-id header to all requests
-    api_client.default_headers['x-k8s-aws-id'] = cluster_name
-    
     return client.CustomObjectsApi(api_client)
 
 
