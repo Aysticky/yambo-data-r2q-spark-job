@@ -18,10 +18,36 @@ env:
   EKS_CLUSTER_NAME: yambo-dev-eks
 
 jobs:
+  check-changes:
+    name: Detect Changed Files
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+    outputs:
+      docker: ${{ steps.filter.outputs.docker }}
+      terraform: ${{ steps.filter.outputs.terraform }}
+      k8s: ${{ steps.filter.outputs.k8s }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Check changed files
+        uses: dorny/paths-filter@v2
+        id: filter
+        with:
+          filters: |
+            docker:
+              - 'src/**'
+              - 'docker/**'
+            terraform:
+              - 'terraform/**'
+            k8s:
+              - 'k8s/**'
+
   build-and-push:
     name: Build and Push Docker Image
     runs-on: ubuntu-latest
-    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+    needs: check-changes
+    if: needs.check-changes.outputs.docker == 'true' || github.event_name == 'workflow_dispatch'
     
     outputs:
       image-tag: ${{ steps.meta.outputs.version }}
@@ -68,7 +94,8 @@ jobs:
   deploy-infrastructure:
     name: Deploy Infrastructure (Terraform)
     runs-on: ubuntu-latest
-    needs: build-and-push
+    needs: [check-changes, build-and-push]
+    if: always() && (needs.check-changes.outputs.terraform == 'true' || needs.check-changes.outputs.k8s == 'true' || github.event_name == 'workflow_dispatch')
     
     outputs:
       irsa_role_arn: ${{ steps.terraform-outputs.outputs.irsa_arn }}
@@ -123,7 +150,8 @@ jobs:
   deploy-kubernetes:
     name: Deploy Kubernetes Manifests
     runs-on: ubuntu-latest
-    needs: [build-and-push, deploy-infrastructure]
+    needs: [check-changes, build-and-push, deploy-infrastructure]
+    if: always() && (needs.check-changes.result != 'failure')
     
     steps:
       - name: Checkout code
@@ -156,7 +184,13 @@ jobs:
       
       - name: Update SparkApplication image
         run: |
-          IMAGE_TAG=${{ needs.build-and-push.outputs.image-tag }}
+          # Use new image tag if Docker was rebuilt, otherwise use latest
+          if [ "${{ needs.build-and-push.result }}" == "success" ]; then
+            IMAGE_TAG=${{ needs.build-and-push.outputs.image-tag }}
+          else
+            IMAGE_TAG="latest"
+          fi
+          
           ECR_URI="${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY }}:${IMAGE_TAG}"
           
           # Update check job
