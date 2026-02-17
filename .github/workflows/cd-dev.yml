@@ -184,6 +184,9 @@ jobs:
       
       - name: Update SparkApplication image
         run: |
+          # Get AWS account ID
+          AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          
           # Use new image tag if Docker was rebuilt, otherwise use latest
           if [ "${{ needs.build-and-push.result }}" == "success" ]; then
             IMAGE_TAG=${{ needs.build-and-push.outputs.image-tag }}
@@ -191,7 +194,7 @@ jobs:
             IMAGE_TAG="latest"
           fi
           
-          ECR_URI="${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY }}:${IMAGE_TAG}"
+          ECR_URI="${AWS_ACCOUNT_ID}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY }}:${IMAGE_TAG}"
           
           # Update check job
           sed -i "s|image:.*|image: \"${ECR_URI}\"|" k8s/spark-application-check.yaml
