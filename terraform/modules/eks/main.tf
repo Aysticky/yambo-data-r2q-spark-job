@@ -444,10 +444,10 @@ resource "aws_iam_policy" "spark_job" {
           "s3:ListBucket"
         ]
         Resource = [
-          "arn:aws:s3:::${var.project_name}-data-lake-${var.environment}/*",
-          "arn:aws:s3:::${var.project_name}-data-lake-${var.environment}",
-          "arn:aws:s3:::${var.project_name}-spark-logs-${var.environment}/*",
-          "arn:aws:s3:::${var.project_name}-spark-logs-${var.environment}"
+          "arn:aws:s3:::${var.project_name}-${var.environment}-data-lake/*",
+          "arn:aws:s3:::${var.project_name}-${var.environment}-data-lake",
+          "arn:aws:s3:::${var.project_name}-${var.environment}-spark-logs/*",
+          "arn:aws:s3:::${var.project_name}-${var.environment}-spark-logs"
         ]
       },
       {
@@ -460,8 +460,8 @@ resource "aws_iam_policy" "spark_job" {
           "dynamodb:Scan"
         ]
         Resource = [
-          "arn:aws:dynamodb:${var.aws_region}:*:table/${var.project_name}-checkpoints-${var.environment}",
-          "arn:aws:dynamodb:${var.aws_region}:*:table/${var.project_name}-job-metadata-${var.environment}"
+          "arn:aws:dynamodb:${var.aws_region}:*:table/${var.project_name}-${var.environment}-checkpoints",
+          "arn:aws:dynamodb:${var.aws_region}:*:table/${var.project_name}-${var.environment}-job-metadata"
         ]
       },
       {
@@ -471,8 +471,8 @@ resource "aws_iam_policy" "spark_job" {
           "secretsmanager:DescribeSecret"
         ]
         Resource = [
-          "arn:aws:secretsmanager:${var.aws_region}:*:secret:${var.project_name}-stripe-api-*",
-          "arn:aws:secretsmanager:${var.aws_region}:*:secret:${var.project_name}-api-credentials-*"
+          "arn:aws:secretsmanager:${var.aws_region}:*:secret:${var.project_name}/${var.environment}/stripe-api-*",
+          "arn:aws:secretsmanager:${var.aws_region}:*:secret:${var.project_name}/${var.environment}/api-credentials-*"
         ]
       },
       {
@@ -483,6 +483,14 @@ resource "aws_iam_policy" "spark_job" {
           "logs:PutLogEvents"
         ]
         Resource = "arn:aws:logs:${var.aws_region}:*:log-group:/aws/eks/${local.cluster_name}/*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "kms:Decrypt",
+          "kms:DescribeKey"
+        ]
+        Resource = "*"
       }
     ]
   })

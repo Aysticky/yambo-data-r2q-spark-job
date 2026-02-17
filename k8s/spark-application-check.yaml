@@ -37,7 +37,7 @@ spec:
   mode: cluster
   
   # Docker image (from ECR)
-  image: "120569615884.dkr.ecr.eu-central-1.amazonaws.com/yambo-dev-spark-job:v1.0.6"
+  image: "120569615884.dkr.ecr.eu-central-1.amazonaws.com/yambo-dev-spark-job:v1.0.13"
   imagePullPolicy: Always
   
   # Main application file
@@ -77,6 +77,9 @@ spec:
     
     # Service account (for IRSA)
     serviceAccount: spark-job-sa
+    
+    # DNS policy (required for kubernetes.default.svc resolution)
+    dnsPolicy: ClusterFirst
     
     # Environment variables from ConfigMap
     envFrom:
@@ -134,6 +137,9 @@ spec:
       job-type: check
       environment: dev
       version: v1.0.0
+    
+    # DNS policy (required for kubernetes.default.svc resolution)
+    dnsPolicy: ClusterFirst
   
   # Spark configuration overrides
   sparkConf:
