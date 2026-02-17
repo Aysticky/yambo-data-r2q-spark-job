@@ -34,31 +34,52 @@ sts_client = boto3.client("sts")
 
 def get_eks_token(cluster_name: str, region: str) -> str:
     """
-    Get authentication token for EKS cluster using AWS CLI.
-    This is the most reliable method and matches official AWS documentation.
+    Generate EKS authentication token.
+    Uses the same method as aws-iam-authenticator and kubectl.
     """
     try:
-        import subprocess
-        import json as json_lib
+        from botocore.signers import RequestSigner
         
-        # Use AWS CLI to get token (AWS CLI is available in Lambda Python runtime)
-        cmd = [
-            'aws', 'eks', 'get-token',
-            '--cluster-name', cluster_name,
-            '--region', region
-        ]
+        # Create STS client
+        sts = boto3.client('sts', region_name=region)
         
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            check=True
+        # Get the service ID
+        service_id = sts.meta.service_model.service_id
+        
+        # Create request signer
+        signer = RequestSigner(
+            service_id,
+            region,
+            'sts',
+            'v4',
+            sts._request_signer._credentials,
+            sts.meta.events
         )
         
-        token_response = json_lib.loads(result.stdout)
-        token = token_response['status']['token']
+        # Generate presigned URL for GetCallerIdentity
+        # The x-k8s-aws-id header must be included in the signature
+        url = signer.generate_presigned_url(
+            {
+                'method': 'GET',
+                'url': f'https://sts.{region}.amazonaws.com/?Action=GetCallerIdentity&Version=2011-06-15',
+                'body': {},
+                'headers': {
+                    'x-k8s-aws-id': cluster_name
+                },
+                'context': {}
+            },
+            region_name=region,
+            expires_in=60,
+            operation_name=''
+        )
         
-        logger.info(f"Successfully generated EKS token using AWS CLI for cluster: {cluster_name}")
+        # Remove https:// prefix and encode
+        token_url = url.replace('https://', '')
+        token = 'k8s-aws-v1.' + base64.urlsafe_b64encode(
+            token_url.encode('utf-8')
+        ).decode('utf-8').rstrip('=')
+        
+        logger.info(f"Successfully generated EKS token for cluster: {cluster_name}")
         return token
         
     except Exception as e:

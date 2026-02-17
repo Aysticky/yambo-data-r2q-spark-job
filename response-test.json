@@ -1,0 +1,1 @@
+{"errorMessage": "'EKS_CLUSTER_NAME'", "errorType": "KeyError", "requestId": "346ceb00-f47b-40df-8608-2a295989a0e9", "stackTrace": ["  File \"/var/task/handler.py\", line 256, in lambda_handler\n    cluster_name = os.environ[\"EKS_CLUSTER_NAME\"]\n", "  File \"/var/lang/lib/python3.9/os.py\", line 679, in __getitem__\n    raise KeyError(key) from None\n"]}
