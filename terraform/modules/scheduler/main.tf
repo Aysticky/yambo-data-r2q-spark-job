@@ -37,6 +37,9 @@ locals {
 # Get current AWS account ID
 data "aws_caller_identity" "current" {}
 
+# Get current AWS region
+data "aws_region" "current" {}
+
 # S3 bucket for storing Kubernetes manifests
 resource "aws_s3_bucket" "manifests" {
   bucket = local.manifest_bucket
@@ -113,13 +116,25 @@ resource "aws_iam_role_policy" "lambda_eks_access" {
           "eks:ListClusters"
         ]
         Resource = var.eks_cluster_arn
-      },
+      }
+    ]
+  })
+}
+
+# IAM policy: Secrets Manager access for K8s token
+resource "aws_iam_role_policy" "lambda_secrets_access" {
+  name = "secrets-manager-access"
+  role = aws_iam_role.lambda_spark_trigger.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
       {
         Effect = "Allow"
         Action = [
-          "sts:GetCallerIdentity"
+          "secretsmanager:GetSecretValue"
         ]
-        Resource = "*"
+        Resource = "arn:aws:secretsmanager:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:secret:yambo-${var.environment}-k8s-token-*"
       }
     ]
   })

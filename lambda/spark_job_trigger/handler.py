@@ -34,37 +34,22 @@ sts_client = boto3.client("sts")
 
 def get_eks_token(cluster_name: str, region: str) -> str:
     """
-    Generate EKS authentication token.
-    Uses boto3 STS client to create a presigned URL in the correct format.
+    Get Kubernetes ServiceAccount token from AWS Secrets Manager.
+    Uses a long-lived token instead of IAM-based authentication.
     """
     try:
-        # Create STS client
-        sts_client = boto3.client('sts', region_name=region)
+        # Get token from Secrets Manager
+        secrets_client = boto3.client('secretsmanager', region_name=region)
+        secret_name = f"yambo-{os.environ.get('ENVIRONMENT', 'dev')}-k8s-token"
         
-        # Generate presigned URL for GetCallerIdentity
-        # This is the approach recommended by AWS for EKS auth
-        url = sts_client.generate_presigned_url(
-            'get_caller_identity',
-            Params={},
-            ExpiresIn=60,
-            HttpMethod='GET',
-        )
+        response = secrets_client.get_secret_value(SecretId=secret_name)
+        token = response['SecretString']
         
-        # Add the required x-k8s-aws-id header value as a query parameter
-        # EKS expects this in the URL for validation
-        url_with_header = url + f'&X-K8s-Aws-Id={cluster_name}'
-        
-        # Remove https:// prefix and base64 encode
-        token_url = url_with_header.replace('https://', '')
-        token = 'k8s-aws-v1.' + base64.urlsafe_b64encode(
-            token_url.encode('utf-8')
-        ).decode('utf-8').rstrip('=')
-        
-        logger.info(f"Successfully generated EKS token for cluster: {cluster_name}")
+        logger.info(f"Successfully retrieved K8s token from Secrets Manager")
         return token
         
     except Exception as e:
-        logger.error(f"Failed to get EKS token: {e}", exc_info=True)
+        logger.error(f"Failed to get K8s token from Secrets Manager: {e}", exc_info=True)
         raise
 
 
