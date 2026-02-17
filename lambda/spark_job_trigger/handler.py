@@ -35,46 +35,27 @@ sts_client = boto3.client("sts")
 def get_eks_token(cluster_name: str, region: str) -> str:
     """
     Generate EKS authentication token.
-    Uses the same method as aws-iam-authenticator and kubectl.
+    Uses boto3 STS client to create a presigned URL in the correct format.
     """
     try:
-        from botocore.signers import RequestSigner
-        
         # Create STS client
-        sts = boto3.client('sts', region_name=region)
-        
-        # Get the service ID
-        service_id = sts.meta.service_model.service_id
-        
-        # Create request signer
-        signer = RequestSigner(
-            service_id,
-            region,
-            'sts',
-            'v4',
-            sts._request_signer._credentials,
-            sts.meta.events
-        )
+        sts_client = boto3.client('sts', region_name=region)
         
         # Generate presigned URL for GetCallerIdentity
-        # The x-k8s-aws-id header must be included in the signature
-        url = signer.generate_presigned_url(
-            {
-                'method': 'GET',
-                'url': f'https://sts.{region}.amazonaws.com/?Action=GetCallerIdentity&Version=2011-06-15',
-                'body': {},
-                'headers': {
-                    'x-k8s-aws-id': cluster_name
-                },
-                'context': {}
-            },
-            region_name=region,
-            expires_in=60,
-            operation_name=''
+        # This is the approach recommended by AWS for EKS auth
+        url = sts_client.generate_presigned_url(
+            'get_caller_identity',
+            Params={},
+            ExpiresIn=60,
+            HttpMethod='GET',
         )
         
-        # Remove https:// prefix and encode
-        token_url = url.replace('https://', '')
+        # Add the required x-k8s-aws-id header value as a query parameter
+        # EKS expects this in the URL for validation
+        url_with_header = url + f'&X-K8s-Aws-Id={cluster_name}'
+        
+        # Remove https:// prefix and base64 encode
+        token_url = url_with_header.replace('https://', '')
         token = 'k8s-aws-v1.' + base64.urlsafe_b64encode(
             token_url.encode('utf-8')
         ).decode('utf-8').rstrip('=')
