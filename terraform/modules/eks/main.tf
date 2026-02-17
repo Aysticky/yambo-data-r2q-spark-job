@@ -457,7 +457,8 @@ resource "aws_iam_policy" "spark_job" {
           "dynamodb:PutItem",
           "dynamodb:UpdateItem",
           "dynamodb:Query",
-          "dynamodb:Scan"
+          "dynamodb:Scan",
+          "dynamodb:DescribeTable"
         ]
         Resource = [
           "arn:aws:dynamodb:${var.aws_region}:*:table/${var.project_name}-${var.environment}-checkpoints",
