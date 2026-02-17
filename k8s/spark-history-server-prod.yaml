@@ -5,6 +5,7 @@ metadata:
   namespace: spark-jobs
   labels:
     app: spark-history-server
+    environment: prod
 spec:
   type: LoadBalancer
   ports:
@@ -22,6 +23,7 @@ metadata:
   namespace: spark-jobs
   labels:
     app: spark-history-server
+    environment: prod
 spec:
   replicas: 1
   selector:
@@ -31,6 +33,7 @@ spec:
     metadata:
       labels:
         app: spark-history-server
+        environment: prod
     spec:
       serviceAccountName: spark-job-sa
       dnsPolicy: ClusterFirst
@@ -67,7 +70,7 @@ spec:
               value: "true"
             - name: SPARK_HISTORY_OPTS
               value: >-
-                -Dspark.history.fs.logDirectory=s3a://yambo-dev-spark-logs/event-logs
+                -Dspark.history.fs.logDirectory=s3a://yambo-prod-spark-logs/event-logs
                 -Dspark.history.ui.port=18080
                 -Dspark.hadoop.fs.s3a.impl=org.apache.hadoop.fs.s3a.S3AFileSystem
                 -Dspark.hadoop.fs.s3a.aws.credentials.provider=com.amazonaws.auth.WebIdentityTokenCredentialsProvider
