@@ -257,27 +257,27 @@ resource "aws_cloudwatch_metric_alarm" "lambda_errors" {
 # Get current aws-auth ConfigMap
 data "kubectl_file_documents" "aws_auth" {
   content = <<-EOT
-    apiVersion: v1
-    kind: ConfigMap
-    metadata:
-      name: aws-auth
-      namespace: kube-system
-    data:
-      mapRoles: |
-        - rolearn: ${var.node_instance_role_arn}
-          groups:
-          - system:bootstrappers
-          - system:nodes
-          username: system:node:{{EC2PrivateDNSName}}
-        - rolearn: ${aws_iam_role.lambda_spark_trigger.arn}
-          groups:
-          - spark-job-managers
-          username: lambda-spark-trigger
-      mapUsers: |
-        - userarn: arn:aws:sts::${data.aws_caller_identity.current.account_id}:assumed-role/${aws_iam_role.lambda_spark_trigger.name}/${local.function_name}
-          groups:
-          - spark-job-managers
-          username: lambda-spark-trigger-session
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: aws-auth
+  namespace: kube-system
+data:
+  mapRoles: |
+    - rolearn: ${var.node_instance_role_arn}
+      groups:
+      - system:bootstrappers
+      - system:nodes
+      username: system:node:{{EC2PrivateDNSName}}
+    - rolearn: ${aws_iam_role.lambda_spark_trigger.arn}
+      groups:
+      - spark-job-managers
+      username: lambda-spark-trigger
+  mapUsers: |
+    - userarn: arn:aws:sts::${data.aws_caller_identity.current.account_id}:assumed-role/${aws_iam_role.lambda_spark_trigger.name}/${local.function_name}
+      groups:
+      - spark-job-managers
+      username: lambda-spark-trigger-session
   EOT
 }
 
