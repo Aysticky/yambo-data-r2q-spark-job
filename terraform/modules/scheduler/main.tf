@@ -272,12 +272,7 @@ data:
     - rolearn: ${aws_iam_role.lambda_spark_trigger.arn}
       groups:
       - spark-job-managers
-      username: lambda-spark-trigger
-  mapUsers: |
-    - userarn: arn:aws:sts::${data.aws_caller_identity.current.account_id}:assumed-role/${aws_iam_role.lambda_spark_trigger.name}/${local.function_name}
-      groups:
-      - spark-job-managers
-      username: lambda-spark-trigger-session
+      username: lambda-spark-trigger:{{SessionName}}
   EOT
 }
 
