@@ -284,7 +284,7 @@ resource "aws_eks_cluster" "main" {
     )
     security_group_ids      = [aws_security_group.eks_cluster.id]
     endpoint_private_access = true
-    endpoint_public_access  = var.environment == "prod" ? false : true
+    endpoint_public_access  = true
   }
 
   enabled_cluster_log_types = [

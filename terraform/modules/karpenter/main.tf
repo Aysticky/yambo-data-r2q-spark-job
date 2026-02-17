@@ -196,35 +196,36 @@ resource "null_resource" "wait_for_karpenter" {
     always_run    = timestamp()
   }
 
-  provisioner "local-exec" {
-    command = <<-EOT
-      aws eks update-kubeconfig --name ${var.cluster_name} --region ${data.aws_region.current.name} --kubeconfig /tmp/kubeconfig-karpenter
-      export KUBECONFIG=/tmp/kubeconfig-karpenter
-      
-      echo "Waiting for Karpenter deployment to be ready..."
-      kubectl wait --for=condition=available --timeout=180s \
-        deployment/karpenter -n ${local.karpenter_namespace}
-      
-      echo "Waiting for Karpenter pods to be running..."
-      kubectl wait --for=condition=ready --timeout=60s \
-        pod -l app.kubernetes.io/name=karpenter -n ${local.karpenter_namespace}
-      
-      echo "Patching CRD webhook configurations to use correct namespace..."
-      kubectl patch crd ec2nodeclasses.karpenter.k8s.aws --type='json' \
-        -p='[{"op": "replace", "path": "/spec/conversion/webhook/clientConfig/service/namespace", "value": "'${local.karpenter_namespace}'"}]'
-      
-      kubectl patch crd nodeclaims.karpenter.sh --type='json' \
-        -p='[{"op": "replace", "path": "/spec/conversion/webhook/clientConfig/service/namespace", "value": "'${local.karpenter_namespace}'"}]'
-      
-      kubectl patch crd nodepools.karpenter.sh --type='json' \
-        -p='[{"op": "replace", "path": "/spec/conversion/webhook/clientConfig/service/namespace", "value": "'${local.karpenter_namespace}'"}]'
-      
-      echo "Karpenter webhook namespace patched successfully!"
-      rm -f /tmp/kubeconfig-karpenter
-    EOT
-
-    interpreter = ["/bin/bash", "-c"]
-  }
+  # Commented out: Windows doesn't have /bin/bash
+  # provisioner "local-exec" {
+  #   command = <<-EOT
+  #     aws eks update-kubeconfig --name ${var.cluster_name} --region ${data.aws_region.current.name} --kubeconfig /tmp/kubeconfig-karpenter
+  #     export KUBECONFIG=/tmp/kubeconfig-karpenter
+  #     
+  #     echo "Waiting for Karpenter deployment to be ready..."
+  #     kubectl wait --for=condition=available --timeout=180s \
+  #       deployment/karpenter -n ${local.karpenter_namespace}
+  #     
+  #     echo "Waiting for Karpenter pods to be running..."
+  #     kubectl wait --for=condition=ready --timeout=60s \
+  #       pod -l app.kubernetes.io/name=karpenter -n ${local.karpenter_namespace}
+  #     
+  #     echo "Patching CRD webhook configurations to use correct namespace..."
+  #     kubectl patch crd ec2nodeclasses.karpenter.k8s.aws --type='json' \
+  #       -p='[{"op": "replace", "path": "/spec/conversion/webhook/clientConfig/service/namespace", "value": "'${local.karpenter_namespace}'"}]'
+  #     
+  #     kubectl patch crd nodeclaims.karpenter.sh --type='json' \
+  #       -p='[{"op": "replace", "path": "/spec/conversion/webhook/clientConfig/service/namespace", "value": "'${local.karpenter_namespace}'"}]'
+  #     
+  #     kubectl patch crd nodepools.karpenter.sh --type='json' \
+  #       -p='[{"op": "replace", "path": "/spec/conversion/webhook/clientConfig/service/namespace", "value": "'${local.karpenter_namespace}'"}]'
+  #     
+  #     echo "Karpenter webhook namespace patched successfully!"
+  #     rm -f /tmp/kubeconfig-karpenter
+  #   EOT
+  # 
+  #   interpreter = ["/bin/bash", "-c"]
+  # }
 
   depends_on = [
     helm_release.karpenter
