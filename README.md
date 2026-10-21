@@ -290,10 +290,7 @@ This project teaches you:
 -GitOps and CI/CD for data pipelines  
 -Debugging distributed systems (Spark on K8s)  
 
-##  License
-
-MIT
 
 ## Contributors
 
-Platform Team - Yambo Data Engineering
+Platform Team - Yambo Data Engineering (Personal work to Olusesi Meadows)
